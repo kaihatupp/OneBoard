@@ -1,0 +1,10 @@
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+.vscode/
+
+# ローカル作業用
+scratchpad/
+*.log
