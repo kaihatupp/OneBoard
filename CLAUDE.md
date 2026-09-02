@@ -57,8 +57,21 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
-└── OneBoard起動.bat    # ローカルサーバー起動 + ブラウザ自動オープン
+├── OneBoard起動.bat    # ローカルサーバー起動 + ブラウザ自動オープン
+├── icon.ico             # アプリアイコン(16〜256px)
+└── generate-icon.ps1    # icon.ico の再生成スクリプト(PowerShell)
 ```
+
+- デスクトップの `OneBoard.lnk`(ショートカット、リポジトリ管理外)は `OneBoard起動.bat` を
+  `icon.ico` 付きで起動する。作り直すには:
+  ```powershell
+  $ws = New-Object -ComObject WScript.Shell
+  $l = $ws.CreateShortcut("$env:USERPROFILE\Desktop\OneBoard.lnk")
+  $l.TargetPath = "<このフォルダ>\OneBoard起動.bat"
+  $l.WorkingDirectory = "<このフォルダ>"
+  $l.IconLocation = "<このフォルダ>\icon.ico,0"
+  $l.Save()
+  ```
 
 ## データモデル(localStorage 実キー)
 

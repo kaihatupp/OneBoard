@@ -1,5 +1,6 @@
 @echo off
 setlocal
+title OneBoard server
 cd /d "%~dp0"
 set PORT=8123
 
