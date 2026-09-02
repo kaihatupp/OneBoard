@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OneBoard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="holiday-banner" class="banner" hidden>
+    <span id="holiday-banner-text"></span>
+    <button type="button" id="holiday-banner-close" aria-label="閉じる">&times;</button>
+  </div>
+
+  <header class="app-header">
+    <h1 class="app-title">OneBoard</h1>
+    <div class="cal-nav">
+      <button type="button" id="prev-month" aria-label="前の月">&#9664;</button>
+      <button type="button" id="cur-month" class="cur-month">2026年9月</button>
+      <button type="button" id="next-month" aria-label="次の月">&#9654;</button>
+      <button type="button" id="today-btn" class="today-btn">今日</button>
+    </div>
+    <button type="button" id="add-event-btn" class="primary">＋ 予定を追加</button>
+  </header>
+
+  <main>
+    <div class="weekday-row" id="weekday-row"></div>
+    <div class="calendar-grid" id="calendar-grid"></div>
+  </main>
+
+  <!-- 日別の予定一覧 -->
+  <div class="modal-overlay" id="day-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="day-modal-title">
+      <div class="modal-head">
+        <h2 id="day-modal-title">予定</h2>
+        <button type="button" class="modal-close" data-close="day-modal" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="day-modal-holiday" class="day-holiday" hidden></p>
+        <ul id="day-event-list" class="day-event-list"></ul>
+        <p id="day-empty" class="muted" hidden>予定はありません。</p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="primary" id="day-add-btn">＋ この日に予定を追加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 予定の登録・編集 -->
+  <div class="modal-overlay" id="event-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
+      <div class="modal-head">
+        <h2 id="event-modal-title">予定を追加</h2>
+        <button type="button" class="modal-close" data-close="event-modal" aria-label="閉じる">&times;</button>
+      </div>
+      <form id="event-form">
+        <div class="modal-body">
+          <label class="field">
+            <span>タイトル</span>
+            <input type="text" id="ev-title" required maxlength="100" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span id="ev-date-label">日付</span>
+            <input type="date" id="ev-date" required>
+          </label>
+
+          <label class="field checkbox">
+            <input type="checkbox" id="ev-allday" checked>
+            <span>終日</span>
+          </label>
+
+          <div class="field time-row" id="ev-time-row" hidden>
+            <label>
+              <span>開始</span>
+              <input type="time" id="ev-start">
+            </label>
+            <label>
+              <span>終了</span>
+              <input type="time" id="ev-end">
+            </label>
+          </div>
+
+          <label class="field">
+            <span>色</span>
+            <select id="ev-color">
+              <option value="blue">ブルー</option>
+              <option value="green">グリーン</option>
+              <option value="orange">オレンジ</option>
+              <option value="red">レッド</option>
+              <option value="purple">パープル</option>
+              <option value="gray">グレー</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>繰り返し</span>
+            <select id="ev-repeat">
+              <option value="none">なし(単発)</option>
+              <option value="monthlyDay">毎月 決まった日</option>
+              <option value="monthlyNthWeekday">毎月 第◯曜日</option>
+            </select>
+          </label>
+
+          <div class="field repeat-detail" id="ev-monthlyday-row" hidden>
+            <label>
+              <span>毎月</span>
+              <select id="ev-monthday"></select>
+              <span>日</span>
+            </label>
+            <p class="hint">その月に無い日(31日など)はスキップされます。</p>
+          </div>
+
+          <div class="field repeat-detail" id="ev-nthweekday-row" hidden>
+            <label>
+              <span>毎月</span>
+              <select id="ev-nth">
+                <option value="1">第1</option>
+                <option value="2">第2</option>
+                <option value="3">第3</option>
+                <option value="4">第4</option>
+                <option value="5">第5</option>
+                <option value="-1">最終</option>
+              </select>
+              <select id="ev-weekday">
+                <option value="0">日</option>
+                <option value="1">月</option>
+                <option value="2">火</option>
+                <option value="3">水</option>
+                <option value="4">木</option>
+                <option value="5">金</option>
+                <option value="6">土</option>
+              </select>
+              <span>曜日</span>
+            </label>
+          </div>
+
+          <label class="field repeat-detail" id="ev-repeat-end-row" hidden>
+            <span>繰り返しの終了日(任意)</span>
+            <input type="date" id="ev-repeat-end">
+          </label>
+
+          <label class="field">
+            <span>メモ</span>
+            <textarea id="ev-note" rows="3" maxlength="1000"></textarea>
+          </label>
+        </div>
+        <div class="modal-foot spread">
+          <button type="button" class="danger" id="ev-delete-btn" hidden>削除</button>
+          <div class="foot-right">
+            <button type="button" class="ghost" data-close="event-modal">キャンセル</button>
+            <button type="submit" class="primary">保存</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 繰り返し予定の削除方法 -->
+  <div class="modal-overlay" id="delete-modal" hidden>
+    <div class="modal narrow" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+      <div class="modal-head">
+        <h2 id="delete-modal-title">繰り返し予定の削除</h2>
+        <button type="button" class="modal-close" data-close="delete-modal" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-modal-text">この予定は繰り返し設定されています。</p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" data-close="delete-modal">キャンセル</button>
+        <button type="button" class="danger" id="delete-one-btn">この日だけ削除</button>
+        <button type="button" class="danger" id="delete-all-btn">すべて削除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="events.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
