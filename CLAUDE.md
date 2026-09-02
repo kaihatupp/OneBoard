@@ -29,7 +29,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     起動時に `navigator.serviceWorker` の全登録を解除する(`app.js` の `init()`)。
 - `holidays.json` を `fetch` するため、`index.html` を `file://` で直接開くと祝日が表示されない
   (その場合はバナーで bat 起動を促す)。カレンダー機能自体は動作する。
-- デスクトップの `OneBoード-app-dev起動.bat`(全角)は Claude Code 起動用で別物。
+- デスクトップの `OneBoard-app-dev起動.bat` は Claude Code 起動用で別物(`cd` して `claude` を実行するだけ)。
 
 ## フェーズ
 
