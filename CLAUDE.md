@@ -108,17 +108,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     (双方向マージ・墓標は不要)。
   - `crypto.js`(Web Crypto。ライブラリ不使用)で PBKDF2(SHA-256, 21万回)→ AES-GCM 256。
     パスフレーズは各ブラウザの `localStorage`(`oneboard.sync.v1`)のみ。
-  - ヘッダーの歯車 ⚙ →「データ」モーダル: パスフレーズ / 「配信データを取得」(スマホのみ) /
-    「暗号化して書き出し」(PCのみ) / 「ファイルから取り込み」。
-    スマホはパスフレーズを入れ終えると自動で取得し、成功したらモーダルを閉じる。
-  - **運用**: PC で「書き出し」→ ダウンロードした `oneboard.enc.json` をリポジトリの
-    `data/` に置く → `git push` → 数分でスマホに反映。
+  - ヘッダーの歯車 ⚙ →「データ」モーダル。ボタンは環境で出し分け:
+    スマホ =「配信データを取得」/ PC =「スマホに反映」(方式B)+「ファイルに書き出し」(手動用)。
+    どちらも「ファイルから取り込み」あり。スマホはパスフレーズを入れ終えると自動で取得し、
+    成功したらモーダルを閉じる。
   - スマホ(`IS_VIEWER` = localhost 以外)は起動時に `data/oneboard.enc.json` を fetch →
     復号 → 表示。**閲覧専用**(`body.viewer-mode` で追加・編集・削除UIを隠す)。
     ヘッダーに「最終更新 M/D H:M」/「オフライン…」/「未取得」を表示。
     取得失敗時は前回取り込んだ内容のまま(SW でオフライン閲覧可)。
   - 取り込みは**全置換 + confirm**(PCでもバックアップからの復元に使える)。
-  - `data/oneboard.enc.json` の初回はマサさんが PC で最初に「書き出し」→ 配置 → push して作る。
+  - `data/oneboard.enc.json` は初回登録済み(コミット `7f94dd6`)。以降は方式Bのボタンで更新。
+  - 稼働確認済み(2026-09-07): PC で予定の追加・編集・削除 → スマホに反映されることを確認。
 - **フェーズ2b・方式B(実装済み): 「スマホに反映」ボタン**
   - PC のデータモーダルに「スマホに反映」ボタン(`CAN_PUBLISH` = localhost + http のときのみ表示)。
     暗号化 → `POST /__publish` → `server.py` が `data/oneboard.enc.json` を書いて
@@ -127,10 +127,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     `git` は `_git_lock` で直列化。push 拒否時は `pull --rebase` して 1 回再試行。
   - 「ファイルに書き出し」(ダウンロード)は手動 push 用 / バックアップ用として残す。
   - `git` の認証は既存の Git Credential Manager をそのまま利用(新しいトークン不要)。
-- **フェーズ2b・残り(未実装)**
-  - 捕捉インボックス(A3): スマホで「後で PC で入力」メモを端末内に記録(カレンダー未登録)。
-    将来は暗号化 `inbox.json` で自動化。
-  - 保存するたびの自動反映(方式B の上に載せる)。方式C(GitHub API 直叩き)。
+- **フェーズ2b・残り(未実装 — 次回の候補)**
+  1. **保存するたびの自動反映**: 方式B の上に載せる。予定を保存したら数秒後に自動で
+     `/__publish`(デバウンス)。PC で編集 → 何もしなくてもスマホが最新(オンライン時)。
+  2. **捕捉インボックス(A3)**: スマホで「後で PC で入力」メモを端末内に記録
+     (`oneboard.inbox.v1`。カレンダー未登録)。方式A では取り込みファイルに同梱、
+     将来は暗号化 `inbox.json` を PC が自動で拾う(スマホに絞ったトークンが1つ必要)。
+  3. **方式C**(GitHub API 直叩き): server.py を使わない配信。方式B で困ったときの代替。
   - 設計整理は artifact「OneBoard データ配信設計」。既存の `oneboard.events.v1` 構造は不変。
 - **将来フェーズ(構想・未着手)**
   - タスク管理機能。重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)
