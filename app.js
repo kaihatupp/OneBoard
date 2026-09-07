@@ -12,6 +12,9 @@ const MAX_CHIPS_PER_CELL = 3;
 // 予定の入力は PC(localhost)で行い、スマホは配信された内容を見るだけ。
 const IS_VIEWER = !['localhost', '127.0.0.1'].includes(location.hostname);
 
+// 方式B「スマホに反映」: localhost + http(= server.py 経由)のときだけ使える。
+const CAN_PUBLISH = !IS_VIEWER && location.protocol.startsWith('http');
+
 // 配信データファイル(暗号化済み)。PC が書き出し → data/ に置いて push → スマホが取得。
 const PUBLISHED_DATA_URL = 'data/oneboard.enc.json';
 
@@ -143,6 +146,11 @@ function bindDataModal() {
     SyncPrefs.set({ passphrase: passEl.value.trim() });
     pullPublishedData();
   });
+
+  const publishBtn = document.getElementById('data-publish-btn');
+  publishBtn.hidden = !CAN_PUBLISH;
+  document.getElementById('data-publish-hint').hidden = !CAN_PUBLISH;
+  publishBtn.addEventListener('click', onPublish);
   document.getElementById('data-export-btn').addEventListener('click', onExportData);
   document.getElementById('data-import').addEventListener('change', (e) => {
     const file = e.target.files && e.target.files[0];
@@ -191,6 +199,42 @@ async function onExportData() {
   } catch (e) {
     console.error('[OneBoard] 書き出しに失敗', e);
     setDataStatus('書き出しに失敗しました: ' + e.message, 'error');
+  }
+}
+
+// 方式B: 暗号化 → server.py の /__publish へ POST(server.py が commit + push する)。
+async function onPublish() {
+  const pass = (document.getElementById('sync-pass').value || '').trim();
+  if (!pass) {
+    setDataStatus('先にパスフレーズを入力してください。', 'error');
+    return;
+  }
+  SyncPrefs.set({ passphrase: pass });
+  const btn = document.getElementById('data-publish-btn');
+  btn.disabled = true;
+  setDataStatus('スマホに反映中…');
+  try {
+    const envelope = await obEncrypt(buildExportPayload(), pass);
+    const res = await fetch('/__publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: envelope,
+    });
+    const r = await res.json().catch(() => ({ ok: false, message: '応答を解釈できませんでした' }));
+    if (r.ok) {
+      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString() });
+      const when = r.at ? fmtStamp(r.at) : fmtStamp(new Date().toISOString());
+      setDataStatus(r.pushed === false
+        ? `${r.note || '変更なし'}(${when})`
+        : `スマホに反映しました(${when})。`, 'ok');
+    } else {
+      setDataStatus(`反映に失敗(${r.stage || '?'}): ${r.message || ''}`
+        + ' —「ファイルに書き出し」で手動 push もできます。', 'error');
+    }
+  } catch (e) {
+    setDataStatus('server.py に接続できませんでした。OneBoard起動.bat から起動していますか?', 'error');
+  } finally {
+    btn.disabled = false;
   }
 }
 

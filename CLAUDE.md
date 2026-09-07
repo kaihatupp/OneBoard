@@ -26,6 +26,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     起動サーバー(`server.py`)への死活通知 `GET /__ping`(約60秒ごと)と、タブを閉じた
     ときの `POST /__bye`(`sendBeacon`)も同種。いずれも同一オリジンの localhost 宛で
     データは送らず、タブを閉じるとサーバーが自動終了する用途。
+  - 例外3(方式B・ユーザー承認済み): PC アプリの「スマホに反映」ボタンを**押したときだけ**、
+    暗号化済みの配信データを `POST /__publish`(同一オリジンの localhost)へ送る。
+    `server.py` がそれを `data/oneboard.enc.json` に書き、`git commit` + `git push`(この
+    リポジトリの `origin` = マサさん自身の GitHub)する。パスフレーズは送らない(暗号化は
+    ブラウザ側で完了済み)。自動では走らない。失敗時は「ファイルに書き出し」で手動 push に切替可。
   - 例外2(ユーザー承認済み): 外部サイトへのディープリンク。日別モーダルのリンクを
     **ユーザーが押したときだけ**、必要最小限の項目を URL に載せて新規タブで開く。
     `fetch` は使わずページ遷移のみ。押さない限り送信は発生しない。
@@ -114,10 +119,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     取得失敗時は前回取り込んだ内容のまま(SW でオフライン閲覧可)。
   - 取り込みは**全置換 + confirm**(PCでもバックアップからの復元に使える)。
   - `data/oneboard.enc.json` の初回はマサさんが PC で最初に「書き出し」→ 配置 → push して作る。
+- **フェーズ2b・方式B(実装済み): 「スマホに反映」ボタン**
+  - PC のデータモーダルに「スマホに反映」ボタン(`CAN_PUBLISH` = localhost + http のときのみ表示)。
+    暗号化 → `POST /__publish` → `server.py` が `data/oneboard.enc.json` を書いて
+    `git add/commit/push`。マサさんの操作は「予定を編集 → ボタン1回」。
+  - `server.py`: `_handle_publish()` / `_publish_to_git()`。エンベロープ形式を検証してから書き込み、
+    `git` は `_git_lock` で直列化。push 拒否時は `pull --rebase` して 1 回再試行。
+  - 「ファイルに書き出し」(ダウンロード)は手動 push 用 / バックアップ用として残す。
+  - `git` の認証は既存の Git Credential Manager をそのまま利用(新しいトークン不要)。
 - **フェーズ2b・残り(未実装)**
   - 捕捉インボックス(A3): スマホで「後で PC で入力」メモを端末内に記録(カレンダー未登録)。
-    方式A では取り込みファイルに同梱して PC 側に表示。将来は暗号化 `inbox.json` で自動化。
-  - 方式B(server.py に publish エンドポイント)/ 方式C(GitHub API 直叩き)。
+    将来は暗号化 `inbox.json` で自動化。
+  - 保存するたびの自動反映(方式B の上に載せる)。方式C(GitHub API 直叩き)。
   - 設計整理は artifact「OneBoard データ配信設計」。既存の `oneboard.events.v1` 構造は不変。
 - **将来フェーズ(構想・未着手)**
   - タスク管理機能。重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)
@@ -135,7 +148,7 @@ OneBoard-app-dev/
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
-├── server.py            # ローカル静的サーバー(/__bye と /__ping 監視でタブを閉じると自動終了)
+├── server.py            # ローカルサーバー(/__bye /__ping で自動終了 + /__publish で配信データを git push)
 ├── OneBoard起動.bat    # server.py 起動 + Chrome を新規ウィンドウで開く(CRLF 改行必須)
 ├── manifest.webmanifest # PWA マニフェスト(相対URL。start_url/scope とも "./")
 ├── sw.js                # Service Worker(https のみ。アプリシェル + holidays.json。データは network-first)
@@ -232,7 +245,7 @@ OneBoard-app-dev/
 
 `index.html` / `style.css` / `events.js` / `app.js` / `crypto.js` / アイコン / `holidays.json` を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v3`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v4`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
 2. コミット・push(GitHub Pages に反映)
 3. スマホ側は、次回オンラインで開いたときに新 SW が入り、その次の起動から新版になる

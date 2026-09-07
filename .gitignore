@@ -8,3 +8,4 @@ Desktop.ini
 # ローカル作業用
 scratchpad/
 *.log
+__pycache__/
