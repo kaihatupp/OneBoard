@@ -8,12 +8,49 @@
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
 const MAX_CHIPS_PER_CELL = 3;
 
+// localhost 以外(= GitHub Pages などのスマホ版)は「閲覧専用」。
+// 予定の入力は PC(localhost)で行い、スマホは配信された内容を見るだけ。
+const IS_VIEWER = !['localhost', '127.0.0.1'].includes(location.hostname);
+
+// 配信データファイル(暗号化済み)。PC が書き出し → data/ に置いて push → スマホが取得。
+const PUBLISHED_DATA_URL = 'data/oneboard.enc.json';
+
 const state = {
   viewYear: 0,
   viewMonth: 0, // 0-11
   today: new Date(),
   occ: new Map(), // 現在描画中グリッドの Map<"YYYY-MM-DD", Event[]>
 };
+
+/* ---------- 同期設定(localStorage) ---------- */
+// パスフレーズは PC・スマホの各ブラウザにだけ保存する(サーバーには送らない)。
+const SyncPrefs = (() => {
+  const KEY = 'oneboard.sync.v1';
+  let data = { passphrase: '', lastPulledAt: null, lastPublishedAt: null };
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) data = { ...data, ...JSON.parse(raw) };
+    } catch (e) {
+      console.warn('[OneBoard] 同期設定の読み込みに失敗しました', e);
+    }
+    return data;
+  }
+
+  function get(key) { return data[key]; }
+
+  function set(patch) {
+    data = { ...data, ...patch };
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data));
+    } catch (e) {
+      console.error('[OneBoard] 同期設定の保存に失敗しました', e);
+    }
+  }
+
+  return { load, get, set };
+})();
 
 /* ---------- 起動 ---------- */
 document.addEventListener('DOMContentLoaded', init);
@@ -38,7 +75,10 @@ async function init() {
   state.viewYear = state.today.getFullYear();
   state.viewMonth = state.today.getMonth();
 
+  if (IS_VIEWER) document.body.classList.add('viewer-mode');
+
   Settings.load();
+  SyncPrefs.load();
   EventStore.load();
   await Holidays.load();
 
@@ -47,8 +87,13 @@ async function init() {
   bindChrome();
   bindModals();
   bindEventForm();
+  bindDataModal();
   render();
+  updateFreshness();
   startServerHeartbeat();
+
+  // スマホ版は起動時に配信データを取りに行く(取れなければ前回分のまま)。
+  if (IS_VIEWER) await pullPublishedData();
 }
 
 /* ---------- ローカルサーバーへの死活通知 ---------- */
@@ -71,6 +116,170 @@ function startServerHeartbeat() {
   window.addEventListener('pagehide', () => {
     try { navigator.sendBeacon('/__bye'); } catch (e) { /* 何もしない */ }
   });
+}
+
+/* =========================================================================
+ * データの書き出し / 取り込み(フェーズ2b・方式A)
+ *
+ * PC: 予定・設定をパスフレーズで暗号化して書き出す(ブラウザのダウンロード)。
+ *     マサさんが data/oneboard.enc.json として置き、git push でスマホへ配信。
+ * スマホ(IS_VIEWER): 起動時に data/oneboard.enc.json を取得 → 復号 → 表示(閲覧専用)。
+ * 暗号化は crypto.js(Web Crypto)。パスフレーズは各ブラウザの localStorage のみ。
+ * ======================================================================= */
+
+const DATA_PAYLOAD_KIND = 'oneboard-export';
+const DATA_PAYLOAD_VERSION = 1;
+
+function bindDataModal() {
+  const passEl = document.getElementById('sync-pass');
+  passEl.value = SyncPrefs.get('passphrase') || '';
+  passEl.addEventListener('change', () => {
+    SyncPrefs.set({ passphrase: passEl.value });
+  });
+
+  document.getElementById('data-export-btn').addEventListener('click', onExportData);
+  document.getElementById('data-import').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) onImportData(file);
+    e.target.value = ''; // 同じファイルを続けて選べるように
+  });
+}
+
+function setDataStatus(msg, kind) {
+  const el = document.getElementById('data-status');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+  el.classList.toggle('is-error', kind === 'error');
+  el.classList.toggle('is-ok', kind === 'ok');
+}
+
+function buildExportPayload() {
+  return {
+    kind: DATA_PAYLOAD_KIND,
+    version: DATA_PAYLOAD_VERSION,
+    publishedAt: new Date().toISOString(),
+    events: EventStore.all(),
+    settings: { homeStation: Settings.get('homeStation') },
+  };
+}
+
+async function onExportData() {
+  const pass = (document.getElementById('sync-pass').value || '').trim();
+  if (!pass) {
+    setDataStatus('先にパスフレーズを入力してください。', 'error');
+    return;
+  }
+  SyncPrefs.set({ passphrase: pass });
+  try {
+    const envelope = await obEncrypt(buildExportPayload(), pass);
+    const blob = new Blob([envelope], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'oneboard.enc.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setDataStatus('書き出しました。data/oneboard.enc.json として置いて git push してください。', 'ok');
+  } catch (e) {
+    console.error('[OneBoard] 書き出しに失敗', e);
+    setDataStatus('書き出しに失敗しました: ' + e.message, 'error');
+  }
+}
+
+async function onImportData(file) {
+  const pass = (document.getElementById('sync-pass').value || '').trim();
+  if (!pass) {
+    setDataStatus('先にパスフレーズを入力してください。', 'error');
+    return;
+  }
+  let payload;
+  try {
+    payload = await obDecrypt(await file.text(), pass);
+  } catch (e) {
+    setDataStatus(e.message, 'error');
+    return;
+  }
+  if (!payload || payload.kind !== DATA_PAYLOAD_KIND) {
+    setDataStatus('OneBoard の書き出しファイルではありません。', 'error');
+    return;
+  }
+  if (!window.confirm('取り込むと、この端末の予定と設定はすべて置き換わります。よろしいですか?')) {
+    return;
+  }
+  applyPayload(payload);
+  render();
+  updateFreshness();
+  setDataStatus(`取り込みました(予定 ${EventStore.all().length} 件)。`, 'ok');
+}
+
+// 復号済みペイロードを localStorage に反映する。
+function applyPayload(payload) {
+  EventStore.replaceAll(Array.isArray(payload.events) ? payload.events : []);
+  Settings.replaceAll(payload.settings || {});
+  SyncPrefs.set({
+    lastPulledAt: new Date().toISOString(),
+    lastPublishedAt: payload.publishedAt || null,
+  });
+}
+
+// スマホ版: 配信ファイルを取得して反映する。best-effort(失敗しても前回分を保持)。
+async function pullPublishedData() {
+  const pass = SyncPrefs.get('passphrase');
+  if (!pass) {
+    setDataStatus('パスフレーズを入力すると、配信された予定を表示します。', 'error');
+    openModal('data-modal');
+    updateFreshness();
+    return;
+  }
+
+  let text;
+  try {
+    const res = await fetch(PUBLISHED_DATA_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    text = await res.text();
+  } catch (e) {
+    // オフライン or 未配信。前回取り込んだ内容のまま表示する。
+    updateFreshness();
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await obDecrypt(text, pass);
+  } catch (e) {
+    setDataStatus(e.message + '(データモーダルでパスフレーズを確認してください)', 'error');
+    openModal('data-modal');
+    updateFreshness();
+    return;
+  }
+  if (payload && payload.kind === DATA_PAYLOAD_KIND) {
+    applyPayload(payload);
+    render();
+  }
+  updateFreshness();
+}
+
+function updateFreshness() {
+  const el = document.getElementById('data-freshness');
+  if (!IS_VIEWER) { el.hidden = true; return; }
+
+  const pubIso = SyncPrefs.get('lastPublishedAt');
+  const pulledIso = SyncPrefs.get('lastPulledAt');
+  if (!pubIso && !pulledIso) {
+    el.textContent = '未取得';
+  } else {
+    const stamp = fmtStamp(pubIso || pulledIso);
+    el.textContent = navigator.onLine ? `最終更新 ${stamp}` : `オフライン・最終更新 ${stamp}`;
+  }
+  el.hidden = false;
+}
+
+function fmtStamp(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '不明';
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 /* ---------- 祝日バナー ---------- */
@@ -110,6 +319,7 @@ function bindChrome() {
   document.getElementById('add-event-btn').addEventListener('click', () => {
     openEventModal(null, toYmd(new Date()));
   });
+  document.getElementById('data-btn').addEventListener('click', () => openModal('data-modal'));
   document.getElementById('holiday-banner-close').addEventListener('click', () => {
     sessionStorage.setItem('oneboard.hideHolidayBanner', '1');
     document.getElementById('holiday-banner').hidden = true;
@@ -327,20 +537,25 @@ function openDayModal(ymd) {
     }
     li.appendChild(main);
 
-    const edit = document.createElement('button');
-    edit.type = 'button';
-    edit.className = 'ghost small';
-    edit.textContent = '編集';
-    edit.addEventListener('click', () => {
-      closeModal('day-modal');
-      openEventModal(ev, ymd);
-    });
-    li.appendChild(edit);
+    // 閲覧専用(スマホ版)では編集ボタンを出さない。
+    if (!IS_VIEWER) {
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'ghost small';
+      edit.textContent = '編集';
+      edit.addEventListener('click', () => {
+        closeModal('day-modal');
+        openEventModal(ev, ymd);
+      });
+      li.appendChild(edit);
+    }
 
     listEl.appendChild(li);
   });
 
-  document.getElementById('day-add-btn').onclick = () => {
+  const dayAdd = document.getElementById('day-add-btn');
+  dayAdd.hidden = IS_VIEWER;
+  dayAdd.onclick = () => {
     closeModal('day-modal');
     openEventModal(null, ymd);
   };
@@ -513,6 +728,8 @@ function syncFormVisibility() {
 }
 
 function openEventModal(ev, ymd) {
+  if (IS_VIEWER) return; // 閲覧専用では編集フォームを開かない
+
   editingId = ev ? ev.id : null;
   editingOccYmd = ymd || (ev ? ev.date : toYmd(new Date()));
 

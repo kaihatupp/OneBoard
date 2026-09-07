@@ -138,7 +138,44 @@ button.danger {
 }
 button.danger:hover { background: #fdecec; }
 
-#add-event-btn { margin-left: auto; }
+button.icon-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+}
+button.icon-btn:hover { background: #eef1f5; color: var(--text); }
+
+/* ヘッダー右寄せグループ: freshness(スマホのみ) → 歯車 → 予定追加(PCのみ) */
+.app-header > #data-btn { margin-left: auto; }
+.app-header > #data-freshness:not([hidden]) { margin-left: auto; }
+.app-header > #data-freshness:not([hidden]) ~ #data-btn { margin-left: 8px; }
+#data-btn + #add-event-btn { margin-left: 8px; }
+
+.data-freshness {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* データモーダル */
+.data-sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+#data-export-row #data-export-btn { width: 100%; }
+#data-import { font-size: 13px; }
+.data-status.is-error { color: var(--danger); }
+.data-status.is-ok { color: var(--chip-green); }
+
+/* 閲覧専用(スマホ版): 入力系を隠す */
+body.viewer-mode #add-event-btn,
+body.viewer-mode #data-export-row,
+body.viewer-mode #day-add-btn { display: none !important; }
 
 /* ---------- カレンダー ---------- */
 main {
@@ -434,10 +471,13 @@ main {
   /* ヘッダー: タイトル+ナビを1段、追加ボタンを全幅で下段に */
   .app-header { gap: 8px 10px; padding: 10px 12px; }
   .app-title { font-size: 18px; }
-  .cal-nav { width: 100%; justify-content: center; }
+  .cal-nav { width: 100%; order: 3; justify-content: center; }
   .cal-nav button { min-height: 40px; padding: 6px 12px; }
   .cal-nav .cur-month { flex: 1; max-width: 168px; min-width: 0; font-size: 15px; }
-  #add-event-btn { margin-left: 0; width: 100%; min-height: 44px; }
+  #add-event-btn { margin-left: 0; width: 100%; min-height: 44px; order: 4; }
+  .app-header > #data-btn,
+  .app-header > #data-freshness:not([hidden]) ~ #data-btn { margin-left: auto; }
+  .icon-btn { min-height: 40px; }
 
   /* カレンダー: 6週が縦に収まるようセルを圧縮。7列グリッドは維持 */
   .weekday { padding: 6px 0; font-size: 12px; }

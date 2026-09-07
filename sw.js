@@ -15,7 +15,7 @@
  *   古いキャッシュは activate 時に削除される。
  * ======================================================================= */
 
-const CACHE = 'oneboard-v1';
+const CACHE = 'oneboard-v2';
 
 const ASSETS = [
   './',
@@ -56,6 +56,22 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;   // クロスオリジンは素通し
   if (url.pathname.includes('/__')) return;          // 死活監視パスは触らない
+
+  // 配信データ(暗号化済み)は常に最新を優先。オフラインなら前回分。
+  if (url.pathname.endsWith('/data/oneboard.enc.json')) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req, { ignoreSearch: true })),
+    );
+    return;
+  }
 
   // ページ遷移: ネットワーク優先。オフラインならキャッシュのシェルを返す。
   if (req.mode === 'navigate') {
