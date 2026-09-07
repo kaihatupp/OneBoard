@@ -19,18 +19,26 @@ const state = {
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-  // OneBoard は Service Worker を使わない。別アプリのローカルサーバーと同じ
-  // ポート/オリジンで開いた場合に古い SW が残っていると誤表示するため掃除する。
+  // Service Worker は https 配信(GitHub Pages など)でのみ使う。
+  //  - https:  PWA/オフライン用に sw.js を登録(相対パスなのでスコープはアプリ配下に限定)。
+  //  - それ以外(localhost/http・file:): 使わない。姉妹アプリのローカルサーバーと同一
+  //    オリジンに古い SW が残っていると誤表示するため掃除する。
+  //    (github.io では他アプリの SW を消さないよう、この掃除は通さない。)
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations()
-      .then((rs) => rs.forEach((r) => r.unregister()))
-      .catch(() => {});
+    if (location.protocol === 'https:') {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    } else {
+      navigator.serviceWorker.getRegistrations()
+        .then((rs) => rs.forEach((r) => r.unregister()))
+        .catch(() => {});
+    }
   }
 
   state.today = new Date();
   state.viewYear = state.today.getFullYear();
   state.viewMonth = state.today.getMonth();
 
+  Settings.load();
   EventStore.load();
   await Holidays.load();
 
@@ -40,6 +48,29 @@ async function init() {
   bindModals();
   bindEventForm();
   render();
+  startServerHeartbeat();
+}
+
+/* ---------- ローカルサーバーへの死活通知 ---------- */
+// 起動用の server.py に、タブ/ウィンドウを閉じたら POST /__bye を送る
+// (server.py はそれを受けて数秒後に終了し、コンソール窓も閉じる)。
+// 保険として GET /__ping を約60秒ごとに送る(クラッシュ等で /__bye が
+// 飛ばなかったとき、5分後にサーバーを片付けるため)。
+// 送信先は同一オリジンの localhost のみ。ユーザーデータは一切送らない。
+// (GitHub Pages などローカル以外で開いたときは何もしない。)
+function startServerHeartbeat() {
+  const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+  if (!isLocal || location.protocol === 'file:') return;
+
+  const ping = () => fetch('/__ping', { cache: 'no-store' }).catch(() => {});
+  ping();
+  setInterval(ping, 60000);
+
+  // pagehide はタブを閉じる/別ページへ遷移する瞬間に確実に発火し、
+  // sendBeacon はページ破棄後も送信が保証される。
+  window.addEventListener('pagehide', () => {
+    try { navigator.sendBeacon('/__bye'); } catch (e) { /* 何もしない */ }
+  });
 }
 
 /* ---------- 祝日バナー ---------- */
@@ -250,6 +281,50 @@ function openDayModal(ymd) {
       note.textContent = ev.note;
       main.appendChild(note);
     }
+
+    if (ev.location) {
+      const loc = document.createElement('div');
+      loc.className = 'day-event-loc';
+      loc.textContent = '📍 ' + ev.location + ' ';
+
+      const map = document.createElement('a');
+      map.className = 'map-link';
+      // クリックしたときだけ、住所を Google マップに渡して新規タブで開く。
+      map.href = 'https://www.google.com/maps/search/?api=1&query='
+        + encodeURIComponent(ev.location);
+      map.target = '_blank';
+      map.rel = 'noopener noreferrer';
+      map.textContent = '地図で開く';
+      loc.appendChild(map);
+      main.appendChild(loc);
+    }
+
+    // 発駅は未入力なら既定の発駅(最寄り駅)で補う。着駅があれば経路リンクを出す。
+    const fromStation = ev.fromStation || Settings.get('homeStation') || '';
+    if (fromStation && ev.toStation) {
+      const tr = document.createElement('div');
+      tr.className = 'day-event-loc';
+      tr.textContent = `🚃 ${fromStation} → ${ev.toStation} `;
+
+      const transit = document.createElement('a');
+      transit.className = 'map-link';
+      // 押したときだけ、発着駅と日時を Yahoo!乗換案内へ渡して新規タブで開く。
+      transit.href = buildYahooTransitUrl(
+        fromStation, ev.toStation, ymd, ev.allDay ? null : ev.startTime,
+      );
+      transit.target = '_blank';
+      transit.rel = 'noopener noreferrer';
+      transit.textContent = '経路を調べる';
+      tr.appendChild(transit);
+      main.appendChild(tr);
+    }
+
+    if (ev.routeMemo) {
+      const route = document.createElement('div');
+      route.className = 'day-event-note';
+      route.textContent = ev.routeMemo;
+      main.appendChild(route);
+    }
     li.appendChild(main);
 
     const edit = document.createElement('button');
@@ -273,6 +348,77 @@ function openDayModal(ymd) {
   openModal('day-modal');
 }
 
+// Yahoo!乗換案内の検索結果 URL を組み立てる。
+// リンクを押したときだけ遷移。発駅・着駅・日付・(到着)時刻以外は送らない。
+// arriveTime が "HH:MM" なら「到着時刻指定」(type=4)で検索する。
+function buildYahooTransitUrl(from, to, ymd, arriveTime) {
+  const p = new URLSearchParams();
+  p.set('from', from);
+  p.set('to', to);
+  if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    const [y, m, d] = ymd.split('-').map(Number);
+    p.set('y', String(y));
+    p.set('m', String(m));
+    p.set('d', String(d));
+  }
+  if (arriveTime && /^\d{1,2}:\d{2}$/.test(arriveTime)) {
+    const [hh, mm] = arriveTime.split(':');
+    p.set('hh', String(Number(hh)));
+    p.set('m1', mm.charAt(0));
+    p.set('m2', mm.charAt(1));
+    p.set('type', '4'); // 到着時刻を指定
+  }
+  p.set('ticket', 'ic'); // 運賃は IC 優先
+  return 'https://transit.yahoo.co.jp/search/result?' + p.toString();
+}
+
+// Yahoo!乗換案内などからコピーした経路テキストを1行に要約する。
+// 例: "7:12発 → 8:03着 / 51分 / 乗換1回 / ¥660"。抽出できた項目だけ並べる。
+function summarizeTransitText(text) {
+  const t = (text || '').replace(/\s+/g, ' ');
+  const parts = [];
+
+  const dep = t.match(/(\d{1,2}:\d{2})\s*発/) || t.match(/出発\s*[:：]?\s*(\d{1,2}:\d{2})/);
+  const arr = t.match(/(\d{1,2}:\d{2})\s*着/) || t.match(/到着\s*[:：]?\s*(\d{1,2}:\d{2})/);
+  if (dep && arr) parts.push(`${dep[1]}発 → ${arr[1]}着`);
+  else if (dep) parts.push(`${dep[1]}発`);
+  else if (arr) parts.push(`${arr[1]}着`);
+
+  // 所要時間: 「51分（乗車43分）」のような総所要を優先。無ければ所要ラベル、最後に最初の時間表現。
+  const dur =
+    t.match(/(\d+時間\s*\d+分|\d+時間|\d+分)\s*[（(]\s*(?:乗車|うち乗車)/) ||
+    t.match(/所要\s*[:：]?\s*(\d+時間\s*\d+分|\d+時間|\d+分)/) ||
+    t.match(/(\d+時間\d+分)/);
+  if (dur) parts.push(dur[1].replace(/\s+/g, ''));
+
+  const transfer = t.match(/乗(?:り)?換(?:え)?\s*[:：]?\s*(\d+)\s*回/);
+  if (transfer) parts.push(`乗換${transfer[1]}回`);
+
+  const fare = t.match(/(?:￥|¥)?\s*([1-9]\d{0,2}(?:,\d{3})+|\d{2,6})\s*円/);
+  if (fare) parts.push(`¥${fare[1].replace(/,/g, '')}`);
+
+  return parts.join(' / ');
+}
+
+const ROUTE_SUMMARY_PREFIX = '【経路】';
+
+function onFormatRoute() {
+  const el = document.getElementById('ev-route');
+  // 既存の要約行(先頭の【経路】…)は一度剥がしてから作り直す(繰り返し押しても重複しない)。
+  const body = el.value.replace(
+    new RegExp(`^${ROUTE_SUMMARY_PREFIX}.*(?:\\r?\\n)?`), '',
+  );
+  const summary = summarizeTransitText(body);
+  if (!summary) {
+    alert('整形できる情報が見つかりませんでした。\n'
+      + 'Yahoo!乗換案内の検索結果テキストを貼り付けてから押してください。');
+    return;
+  }
+  el.value = body
+    ? `${ROUTE_SUMMARY_PREFIX}${summary}\n${body}`
+    : `${ROUTE_SUMMARY_PREFIX}${summary}`;
+}
+
 function timeRange(ev) {
   if (ev.startTime && ev.endTime) return `${ev.startTime}–${ev.endTime}`;
   if (ev.startTime) return ev.startTime;
@@ -292,6 +438,21 @@ function describeRecurrence(r) {
 let editingId = null;      // 編集中の予定 id(新規なら null)
 let editingOccYmd = null;  // どの出現日から開いたか(この日だけ削除に使用)
 
+// 時刻欄が空のままフォーカスされたときに入れる初期値。
+// 現在時刻を切り上げた直近の正時(00分)。例: 11:50 → "12:00"、11:00 ちょうど → "11:00"。
+function nextRoundHour() {
+  const now = new Date();
+  let h = now.getHours();
+  if (now.getMinutes() > 0) h += 1;
+  return String(h % 24).padStart(2, '0') + ':00';
+}
+
+// "HH:MM" の1時間後(分はそのまま)。
+function plusOneHour(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return String((h + 1) % 24).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
 function bindEventForm() {
   // 毎月N日セレクトを生成
   const dsel = document.getElementById('ev-monthday');
@@ -304,6 +465,22 @@ function bindEventForm() {
 
   document.getElementById('ev-allday').addEventListener('change', syncFormVisibility);
   document.getElementById('ev-repeat').addEventListener('change', syncFormVisibility);
+
+  // 時刻欄は初期値なし。空のまま操作(時計マークのクリック/フォーカス)したら
+  // 直近の正時(00分)を入れておく。終了は開始が入っていればその1時間後。
+  const startEl = document.getElementById('ev-start');
+  const endEl = document.getElementById('ev-end');
+  const seedStart = () => { if (!startEl.value) startEl.value = nextRoundHour(); };
+  const seedEnd = () => {
+    if (endEl.value) return;
+    endEl.value = startEl.value ? plusOneHour(startEl.value) : nextRoundHour();
+  };
+  ['focus', 'mousedown'].forEach((evt) => {
+    startEl.addEventListener(evt, seedStart);
+    endEl.addEventListener(evt, seedEnd);
+  });
+
+  document.getElementById('ev-route-format').addEventListener('click', onFormatRoute);
 
   document.getElementById('event-form').addEventListener('submit', onSubmitEvent);
   document.getElementById('ev-delete-btn').addEventListener('click', onDeleteClick);
@@ -342,11 +519,18 @@ function openEventModal(ev, ymd) {
   document.getElementById('event-modal-title').textContent = ev ? '予定を編集' : '予定を追加';
   document.getElementById('ev-title').value = ev ? ev.title : '';
   document.getElementById('ev-date').value = ev ? ev.date : editingOccYmd;
-  document.getElementById('ev-allday').checked = ev ? ev.allDay : true;
+  document.getElementById('ev-allday').checked = ev ? ev.allDay : false;
   document.getElementById('ev-start').value = ev && ev.startTime ? ev.startTime : '';
   document.getElementById('ev-end').value = ev && ev.endTime ? ev.endTime : '';
   document.getElementById('ev-color').value = ev ? ev.color : 'blue';
   document.getElementById('ev-note').value = ev ? ev.note : '';
+  document.getElementById('ev-location').value = ev && ev.location ? ev.location : '';
+  // 新規は既定の発駅(最寄り駅)を初期表示。編集時は保存済みの値。
+  document.getElementById('ev-from').value =
+    ev ? (ev.fromStation || '') : (Settings.get('homeStation') || '');
+  document.getElementById('ev-to').value = ev && ev.toStation ? ev.toStation : '';
+  document.getElementById('ev-route').value = ev && ev.routeMemo ? ev.routeMemo : '';
+  document.getElementById('ev-set-home').checked = false;
   document.getElementById('ev-repeat-end').value = ev && ev.recurrenceEnd ? ev.recurrenceEnd : '';
 
   const repeatSel = document.getElementById('ev-repeat');
@@ -405,6 +589,11 @@ function onSubmitEvent(e) {
     return;
   }
 
+  const fromStation = document.getElementById('ev-from').value.trim();
+  if (document.getElementById('ev-set-home').checked && fromStation) {
+    Settings.set('homeStation', fromStation);
+  }
+
   const existing = editingId ? EventStore.get(editingId) : null;
   EventStore.upsert({
     id: editingId || undefined,
@@ -415,6 +604,10 @@ function onSubmitEvent(e) {
     endTime: allDay ? null : end,
     color: document.getElementById('ev-color').value,
     note: document.getElementById('ev-note').value,
+    location: document.getElementById('ev-location').value,
+    fromStation,
+    toStation: document.getElementById('ev-to').value,
+    routeMemo: document.getElementById('ev-route').value,
     recurrence,
     recurrenceEnd: recurrence ? repeatEnd : null,
     // 繰り返し種別を変えたら除外リストは無意味になるのでリセット

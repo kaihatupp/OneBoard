@@ -66,6 +66,38 @@ const Holidays = (() => {
   };
 })();
 
+/* ---------- 設定(localStorage) ---------- */
+// 端末内の軽い設定。今は「既定の発駅(最寄り駅)」だけ。
+const Settings = (() => {
+  const KEY = 'oneboard.settings.v1';
+  const DEFAULTS = { homeStation: '新越谷' };
+  let data = { ...DEFAULTS };
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) data = { ...DEFAULTS, ...JSON.parse(raw) };
+    } catch (e) {
+      console.warn('[OneBoard] 設定の読み込みに失敗しました', e);
+      data = { ...DEFAULTS };
+    }
+    return data;
+  }
+
+  function get(key) { return data[key]; }
+
+  function set(key, value) {
+    data[key] = value;
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data));
+    } catch (e) {
+      console.error('[OneBoard] 設定の保存に失敗しました', e);
+    }
+  }
+
+  return { load, get, set };
+})();
+
 /* ---------- 予定ストア ---------- */
 function oneboardUid() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -80,7 +112,8 @@ const EventStore = (() => {
    * 予定の正規化。将来フィールドもここで補完し、古い保存データを壊さない。
    * イベント構造:
    *   id, title, date("YYYY-MM-DD" = 単発なら開催日 / 繰り返しなら開始日),
-   *   allDay, startTime, endTime, note, color,
+   *   allDay, startTime, endTime, note, location,
+   *   fromStation, toStation, routeMemo, color,
    *   recurrence: null
    *     | { type:'monthlyDay', day:1..31 }
    *     | { type:'monthlyNthWeekday', week:1..5|-1, weekday:0..6 },
@@ -109,6 +142,10 @@ const EventStore = (() => {
       startTime: ev.allDay === false ? (ev.startTime || null) : null,
       endTime: ev.allDay === false ? (ev.endTime || null) : null,
       note: ev.note || '',
+      location: (ev.location || '').trim(),
+      fromStation: (ev.fromStation || '').trim(),
+      toStation: (ev.toStation || '').trim(),
+      routeMemo: ev.routeMemo || '',
       color: ev.color || 'blue',
       recurrence,
       recurrenceEnd: ev.recurrenceEnd || null,
