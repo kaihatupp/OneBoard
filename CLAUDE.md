@@ -117,7 +117,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     ヘッダーに「最終更新 M/D H:M」/「オフライン…」/「未取得」を表示。
     取得失敗時は前回取り込んだ内容のまま(SW でオフライン閲覧可)。
   - 取り込みは**全置換 + confirm**(PCでもバックアップからの復元に使える)。
-  - `data/oneboard.enc.json` は初回登録済み(コミット `7f94dd6`)。以降は方式Bのボタンで更新。
+  - `data/oneboard.enc.json` は初回登録済み。以降は方式Bのボタンで更新。
   - 稼働確認済み(2026-09-07): PC で予定の追加・編集・削除 → スマホに反映されることを確認。
 - **フェーズ2b・方式B(実装済み): 「スマホに反映」ボタン**
   - PC のデータモーダルに「スマホに反映」ボタン(`CAN_PUBLISH` = localhost + http のときのみ表示)。
