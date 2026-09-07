@@ -260,3 +260,15 @@ OneBoard-app-dev/
 
 齋藤オフィスの他アプリと同様、開発相談時に実在の個人データをそのまま貼り付けない。
 本アプリのデータは常にブラウザ内に留まり、サーバーへは一切送信されない。
+
+## git の著者情報(2026-09-07 に統一済み)
+
+- 全コミットの author / committer を **`kaihatupp <kaihatupp@users.noreply.github.com>`** に統一。
+  以前は実名 `齋藤正憲 <office@sr-masa.com>` だったものを `git filter-branch` で全17コミット書き換え、
+  `push --force-with-lease` で GitHub にも反映済み。
+- リポジトリのローカル設定(`user.name` / `user.email`)も上記に変更済み。**今後もこの名義でコミットする**。
+- 姉妹アプリ(gym-training-trend / health-tracker)は ID 付き形式
+  `310461674+kaihatupp@users.noreply.github.com` を使用。OneBoard は ID なし形式だが、
+  同一 GitHub アカウントに紐づくため実害なし(統一しないことをマサさんが了承済み)。
+- 書き換え前の履歴バックアップ: `デスクトップ/OneBoard-履歴バックアップ-書換前-77af123.bundle`
+  (マサさんが確認後に削除可)。
