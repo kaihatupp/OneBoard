@@ -183,21 +183,18 @@ OneBoard-app-dev/
 Claude Code からはリモート作成・Pages 有効化はできない(リモート未設定・`gh` 未インストール)。
 ファイル一式をコミットしたうえで、以下を齋藤さんが実行する。
 
-1. GitHub で**空のリポジトリ**を作成(名前は任意。相対パス設計なので URL 名に依存しない)
-2. ローカルで:
-   ```
-   git remote add origin https://github.com/<ユーザー名>/<リポジトリ名>.git
-   git push -u origin master
-   ```
-3. GitHub → **Settings → Pages** → Source:「Deploy from a branch」→ Branch: `master` /`(root)` → Save
-4. 数分後 `https://<ユーザー名>.github.io/<リポジトリ名>/` を開く(← これがスマホ版のURL)
-5. スマホの Chrome でそのURLを開き、メニュー →「ホーム画面に追加」。
-   スタンドアロン起動・アイコン・(機内モードで)オフライン表示を確認する。
+初回セットアップ(2026-09-07 完了):
 
-- ブランチは `master` のまま公開可。`main` に揃えたい場合は `git branch -m master main` してから
-  push し、手順3の Branch を `main` にする。
-- 公開後、`README.md` と下記のURL欄を実際のURLに更新する。
-- 公開URL: (未公開)
+1. GitHub リポジトリ `kaihatupp/OneBoard`(public、空)を作成済み
+2. `git remote add origin https://github.com/kaihatupp/OneBoard.git` → `git push -u origin master`
+3. Settings → Pages → Source「Deploy from a branch」/ Branch `master` `/(root)` で公開
+
+以降の更新は `git push origin master` だけで反映される(数分)。
+
+- ブランチは `master`。`main` に揃えたい場合は `git branch -m master main` + GitHub 側の
+  Pages ブランチ変更 + `git push -u origin main` が必要。
+- 公開URL: https://kaihatupp.github.io/OneBoard/
+- リポジトリ: https://github.com/kaihatupp/OneBoard
 
 ## SW キャッシュ更新手順
 
