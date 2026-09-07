@@ -178,23 +178,19 @@ OneBoard-app-dev/
    - 「今年＋来年」が `coveredYears` にそろえばバナーは出ない
    - 現在の同梱範囲: 2024〜2027年
 
-## GitHub Pages 公開手順(齋藤さんが実行)
+## GitHub Pages 公開(セットアップ済み)
 
-Claude Code からはリモート作成・Pages 有効化はできない(リモート未設定・`gh` 未インストール)。
-ファイル一式をコミットしたうえで、以下を齋藤さんが実行する。
+初回セットアップは 2026-09-07 に完了済み:
 
-初回セットアップ(2026-09-07 完了):
-
-1. GitHub リポジトリ `kaihatupp/OneBoard`(public、空)を作成済み
-2. `git remote add origin https://github.com/kaihatupp/OneBoard.git` → `git push -u origin master`
-3. Settings → Pages → Source「Deploy from a branch」/ Branch `master` `/(root)` で公開
-
-以降の更新は `git push origin master` だけで反映される(数分)。
+- リポジトリ: https://github.com/kaihatupp/OneBoard (public)
+- 公開URL: https://kaihatupp.github.io/OneBoard/
+- Pages Source: `master` ブランチ `/(root)`
+- ローカルの `origin` は `https://github.com/kaihatupp/OneBoard.git`(`git push origin master` で反映、数分)
 
 - ブランチは `master`。`main` に揃えたい場合は `git branch -m master main` + GitHub 側の
   Pages ブランチ変更 + `git push -u origin main` が必要。
-- 公開URL: https://kaihatupp.github.io/OneBoard/
-- リポジトリ: https://github.com/kaihatupp/OneBoard
+- `gh` CLI は未インストール。GitHub 側の操作(リポジトリ作成・Pages 設定など)は
+  マサさんのブラウザ(Chrome のログイン中セッション)経由で行う。
 
 ## SW キャッシュ更新手順
 
