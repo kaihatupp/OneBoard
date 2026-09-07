@@ -103,8 +103,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     (双方向マージ・墓標は不要)。
   - `crypto.js`(Web Crypto。ライブラリ不使用)で PBKDF2(SHA-256, 21万回)→ AES-GCM 256。
     パスフレーズは各ブラウザの `localStorage`(`oneboard.sync.v1`)のみ。
-  - ヘッダーの歯車 ⚙ →「データ」モーダル: パスフレーズ / 「暗号化して書き出し」(PCのみ) /
-    「ファイルから取り込み」。
+  - ヘッダーの歯車 ⚙ →「データ」モーダル: パスフレーズ / 「配信データを取得」(スマホのみ) /
+    「暗号化して書き出し」(PCのみ) / 「ファイルから取り込み」。
+    スマホはパスフレーズを入れ終えると自動で取得し、成功したらモーダルを閉じる。
   - **運用**: PC で「書き出し」→ ダウンロードした `oneboard.enc.json` をリポジトリの
     `data/` に置く → `git push` → 数分でスマホに反映。
   - スマホ(`IS_VIEWER` = localhost 以外)は起動時に `data/oneboard.enc.json` を fetch →
@@ -231,7 +232,7 @@ OneBoard-app-dev/
 
 `index.html` / `style.css` / `events.js` / `app.js` / `crypto.js` / アイコン / `holidays.json` を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v2`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v3`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
 2. コミット・push(GitHub Pages に反映)
 3. スマホ側は、次回オンラインで開いたときに新 SW が入り、その次の起動から新版になる
