@@ -18,7 +18,8 @@ GitHub Pages で公開しています。スマホの Chrome で公開URLを開�
 「ホーム画面に追加」するとアプリとして使えます(オフライン対応)。
 PC版とスマホ版はデータを共有しません(同期は将来フェーズ)。
 
-- 公開URL: (未公開)
+- 公開URL: https://kaihatupp.github.io/OneBoard/
+- リポジトリ: https://github.com/kaihatupp/OneBoard
 
 ## フェーズ1でできること
 
