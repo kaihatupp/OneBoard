@@ -244,10 +244,15 @@
 
         <div id="data-export-row">
           <hr class="data-sep">
-          <button type="button" class="primary" id="data-export-btn">暗号化して書き出し</button>
+          <button type="button" class="primary" id="data-publish-btn" hidden>スマホに反映</button>
+          <p class="hint" id="data-publish-hint">
+            予定を編集したら押してください。暗号化 → <code>data/oneboard.enc.json</code> 更新 →
+            <code>git push</code> まで自動(OneBoard起動.bat で起動中のときのみ)。
+          </p>
+          <button type="button" class="ghost small" id="data-export-btn">ファイルに書き出し(手動用 / バックアップ)</button>
           <p class="hint">
-            ダウンロードした <code>oneboard.enc.json</code> を、リポジトリの
-            <code>data/</code> フォルダに置いて <code>git push</code> すると、スマホに反映されます。
+            自動反映を使わないときは、ダウンロードした <code>oneboard.enc.json</code> を
+            <code>data/</code> に置いて自分で <code>git push</code> します。
           </p>
         </div>
 

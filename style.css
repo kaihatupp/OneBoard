@@ -167,8 +167,9 @@ button.icon-btn:hover { background: #eef1f5; color: var(--text); }
 
 /* データモーダル */
 .data-sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
-#data-export-row #data-export-btn,
+#data-publish-btn,
 #data-pull-row #data-pull-btn { width: 100%; }
+#data-export-btn { margin-top: 6px; }
 #data-import { font-size: 13px; }
 .data-status.is-error { color: var(--danger); }
 .data-status.is-ok { color: var(--chip-green); }
