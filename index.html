@@ -2,9 +2,19 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>OneBoard</title>
   <link rel="stylesheet" href="style.css">
+
+  <!-- PWA(https 配信時のみ Service Worker が有効。登録は app.js の init()) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="icon" href="icon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="OneBoard">
 </head>
 <body>
   <div id="holiday-banner" class="banner" hidden>
@@ -66,7 +76,7 @@
           </label>
 
           <label class="field checkbox">
-            <input type="checkbox" id="ev-allday" checked>
+            <input type="checkbox" id="ev-allday">
             <span>終日</span>
           </label>
 
@@ -139,6 +149,39 @@
             <span>繰り返しの終了日(任意)</span>
             <input type="date" id="ev-repeat-end">
           </label>
+
+          <label class="field" id="ev-location-field">
+            <span>場所(住所)</span>
+            <input type="text" id="ev-location" maxlength="200" autocomplete="off"
+                   placeholder="住所を入れると地図リンクを表示">
+          </label>
+          <p class="hint" id="ev-location-hint">「地図で開く」を押すと Google マップに住所を送信します(押したときだけ)。</p>
+
+          <div class="field dual-row">
+            <label>
+              <span>発駅</span>
+              <input type="text" id="ev-from" maxlength="50" autocomplete="off">
+            </label>
+            <label>
+              <span>着駅</span>
+              <input type="text" id="ev-to" maxlength="50" autocomplete="off">
+            </label>
+          </div>
+          <label class="field checkbox" id="ev-home-row">
+            <input type="checkbox" id="ev-set-home">
+            <span>この発駅を既定にする</span>
+          </label>
+          <p class="hint">発駅・着駅を入れると日別画面に「経路を調べる」(Yahoo!乗換案内)リンクが出ます。押したときだけ発着駅と日時を送信します。開始時刻があれば「到着時刻」として検索します。</p>
+
+          <label class="field" id="ev-route-field">
+            <span>経路・アクセス</span>
+            <textarea id="ev-route" rows="3" maxlength="1000"
+                      placeholder="調べた経路や道順をここに(貼り付けOK。オフラインでも見返せます)"></textarea>
+          </label>
+          <p class="hint" id="ev-route-hint">
+            <button type="button" class="ghost small" id="ev-route-format">貼り付けを整形</button>
+            Yahoo!乗換案内の結果を貼り付けてから押すと、先頭に「発着時刻 / 乗換 / 運賃」の要約行を足します。
+          </p>
 
           <label class="field">
             <span>メモ</span>

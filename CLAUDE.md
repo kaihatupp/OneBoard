@@ -14,19 +14,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **技術構成: プレーンな HTML / CSS / 素の JavaScript。フレームワーク・npm・ビルドツール不使用。**
 - **データ保存: ブラウザの `localStorage` のみ。** サーバー・DB は使わない。
-  - PC ⇔ スマホ同期は将来フェーズの検討事項。フェーズ1では対象外(端末内完結)。
-- **完全オフライン完結・データ送信一切なし。** `fetch` / `XMLHttpRequest` / `WebSocket` などで
-  ユーザーデータを外部へ送るコードを追加しない。
-  - 例外: 同梱した静的ファイルの読み込みのみ(`holidays.json` を同一オリジンから `fetch`)。
-  - サーバー送信が必要な機能を頼まれたら、実装前にこの制約との矛盾を指摘すること。
-- **ホスティング**: 将来的に GitHub Pages(スマホ対応時)。フェーズ1は PC 上での動作確認を優先。
+  - PC ⇔ スマホ同期はフェーズ2bの検討事項。現時点では端末内完結で、PC版
+    (`localhost`)とスマホ版(GitHub Pages)は**別々のデータ**(オリジンが違うため)。
+  - データ構造(`oneboard.events.v1` / `oneboard.settings.v1`)は同期を見据えて壊さない。
+- **完全オフライン完結・自動送信一切なし。** `fetch` / `XMLHttpRequest` / `WebSocket` などで
+  ユーザーデータを外部へ自動送信するコードを追加しない。
+  - 例外1: 同梱した静的ファイルの読み込みのみ(`holidays.json` を同一オリジンから `fetch`)。
+    起動サーバー(`server.py`)への死活通知 `GET /__ping`(約60秒ごと)と、タブを閉じた
+    ときの `POST /__bye`(`sendBeacon`)も同種。いずれも同一オリジンの localhost 宛で
+    データは送らず、タブを閉じるとサーバーが自動終了する用途。
+  - 例外2(ユーザー承認済み): 外部サイトへのディープリンク。日別モーダルのリンクを
+    **ユーザーが押したときだけ**、必要最小限の項目を URL に載せて新規タブで開く。
+    `fetch` は使わずページ遷移のみ。押さない限り送信は発生しない。
+    - 「地図で開く」: 「場所(住所)」の文字列を Google マップへ
+      (`https://www.google.com/maps/search/?api=1&query=<住所>`)。住所以外は送らない。
+    - 「経路を調べる」: 「発駅」「着駅」と、その予定の日付・開始時刻(到着指定=`type=4`)を
+      Yahoo!乗換案内へ(`https://transit.yahoo.co.jp/search/result?from=&to=&y=&m=&d=&hh=&m1=&m2=&type=4&ticket=ic`)。
+      発着駅・日時以外は送らない。発駅が空なら既定の発駅(`Settings` の `homeStation`)で補う。
+  - 上記以外でサーバー送信・外部送信が必要な機能を頼まれたら、実装前にこの制約との矛盾を指摘すること。
+- **ホスティング**: スマホ版は GitHub Pages(PWA・端末内完結)。PC版は従来どおり
+  `OneBoard起動.bat` → `server.py` のローカル配信。両者はコード共通・データ別。
+- **Service Worker**: `https` 配信(GitHub Pages)でのみ登録する(`app.js` の `init()`)。
+  キャッシュ対象は**同一オリジンのアプリシェル + `holidays.json` だけ**(`sw.js` の `ASSETS`)。
+  `localStorage` には触れず、外部へは何も送らない。`localhost`/`http`/`file:` では登録せず、
+  姉妹アプリのローカルサーバーと同一オリジンに残った古い SW を解除する
+  (`github.io` では他アプリの SW を消さないよう解除処理を通さない)。
+  アプリ資産を変更したら `sw.js` の `CACHE` バージョンを上げること(下記「SW キャッシュ更新手順」)。
 
 ## 起動方法
 
-- `OneBoard起動.bat` をダブルクリック → `py -m http.server 8123` でローカルサーバーを起動し、
-  ブラウザで `http://localhost:8123/` を自動オープンする。
-  - Service Worker は使わない。万一ほかのローカルアプリの SW が同一オリジンに残っていても、
-    起動時に `navigator.serviceWorker` の全登録を解除する(`app.js` の `init()`)。
+- `OneBoard起動.bat` をダブルクリック → `py server.py 8123`(`http.server` 相当の静的配信)で
+  ローカルサーバーを起動し、`http://localhost:8123/` を **Chrome の新しいウィンドウ**で開く
+  (`chrome.exe --new-window`。Chrome が既に開いていても必ず別ウィンドウ)。
+  - Chrome の実行ファイルは `Program Files` /`Program Files (x86)` /`LocalAppData` の
+    既定パス → レジストリ App Paths(HKLM/HKCU)の順で探す。見つからなければ既定ブラウザで開く。
+  - **`.bat` / `.ps1` は必ず CRLF 改行で保存する。** LF で保存すると cmd.exe が
+    `for /f` やラベル(`:openbrowser`)を含む複雑なスクリプトを誤解釈して壊れる
+    (エディタや Write ツールが LF にしがちなので、編集後に改行コードを確認すること)。
+  - タブ/ウィンドウを閉じると `app.js` の `startServerHeartbeat()` が `POST /__bye`
+    (`navigator.sendBeacon`)を送り、`server.py` が数秒後(`BYE_GRACE`)に自動終了する。
+    バッチ実行なのでコンソール窓もそのまま閉じる。すぐ止めたいときは窓を閉じる / Ctrl+C でも可。
+    複数タブで開いていれば、閉じた直後に別タブの `GET /__ping` が届いて延命される。
+  - 保険として `GET /__ping` を約60秒ごとに送り、5分(`IDLE_TIMEOUT`)途切れたら終了
+    (クラッシュ等で `/__bye` が飛ばなかったときの後始末)。バックグラウンドタブの
+    タイマー抑制で ping 間隔が延びても切れないよう、間隔に対して余裕を持たせている。
+  - 待ち受けは `127.0.0.1` のみ。
+  - Service Worker は https でのみ登録(上記「開発方針・設計制約」参照)。localhost では
+    使わず、起動時に残存 SW を解除する(`app.js` の `init()`)。
 - `holidays.json` を `fetch` するため、`index.html` を `file://` で直接開くと祝日が表示されない
   (その場合はバナーで bat 起動を促す)。カレンダー機能自体は動作する。
 - デスクトップの `OneBoard-app-dev起動.bat` は Claude Code 起動用で別物(`cd` して `claude` を実行するだけ)。
@@ -38,13 +72,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 祝日表示(内閣府データを `holidays.json` に同梱、祝日・日曜は赤 / 土曜は青)
   - 祝日データの `coveredYears` で「収録済みの年」を管理。起動時に「今年＋来年」が
     そろっているか判定し、不足していれば画面上部にバナー表示(更新は Claude Code に依頼)
-  - 予定の登録・編集・削除(タイトル / 日付 / 終日・時刻 / 色 / メモ)
+  - 予定の登録・編集・削除
+    (タイトル / 日付 / 終日・時刻 / 色 / 場所(住所) / 発駅・着駅 / 経路・アクセス / メモ)
+    - 新規予定は「時刻指定」がデフォルト(終日オフ)。開始・終了とも初期値なし。
+      空の時刻欄にフォーカスすると直近の正時(00分)が入る(開始→現在の切り上げ、終了→開始の1時間後)
+    - 「場所(住所)」を入れると日別モーダルに「地図で開く」リンクが出る(→ 設計制約の例外2)
+    - 「発駅・着駅」を入れると日別モーダルに「経路を調べる」(Yahoo!乗換案内)リンクが出る
+      (→ 設計制約の例外2)。発駅の初期値は既定の発駅(`Settings.homeStation`、初期値「新越谷」)。
+      フォームの「この発駅を既定にする」で `homeStation` を更新できる。
+    - 「経路・アクセス」は端末内メモ(外部送信なし)。改行そのままで日別モーダルに表示。
+      「貼り付けを整形」ボタン(`summarizeTransitText()`)で、貼り付けた Yahoo!乗換案内の
+      結果から「発着時刻 / 所要 / 乗換 / 運賃」を抽出し、先頭に `【経路】…` の要約行を付ける
+      (元テキストは残す。繰り返し押しても要約行は 1 本)。
   - 繰り返し予定: 毎月の日付指定(例: 毎月25日) / 第◯曜日指定(例: 第1火曜、最終金曜)
   - 繰り返しの終了日(任意)、繰り返し予定は「この日だけ削除」(除外日)/「すべて削除」に対応
   - 通知機能は未実装(将来フェーズ)
+- **フェーズ2a(実装済み): PWA化・スマホ単体対応**
+  - `manifest.webmanifest` + `sw.js` でホーム画面追加・スタンドアロン起動・オフライン表示に対応
+  - 機能はフェーズ1と同一(祝日・繰り返し・地図/経路リンクなど流用。新機能なし)
+  - スマホ画面向けにレスポンシブ強化(`style.css` の `@media`。7列グリッドは維持したまま
+    セル圧縮 / モーダルは本文スクロール+ヘッダー・フッター常時表示 / タップ領域拡大 /
+    入力欄 16px で iOS 自動ズーム抑止 / セーフエリア対応)
+  - GitHub Pages で公開(下記「GitHub Pages 公開手順」)。PC版とはデータ別・同期なし
+  - データ構造(`oneboard.events.v1`)は不変(フェーズ2bの同期を見据えて壊さない)
+- **フェーズ2b(構想・未着手): PC ⇔ スマホ同期**
+  - GitHub 経由を想定。データ構造の破壊的変更を避けつつ組み込む
 - **将来フェーズ(構想・未着手)**
   - タスク管理機能。重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)
-  - PWA 対応 / GitHub Pages 公開 / スマホ対応 / PC ⇔ スマホ同期
   - 通知
 
 ## ファイル構成
@@ -57,10 +111,19 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
-├── OneBoard起動.bat    # ローカルサーバー起動 + ブラウザ自動オープン
-├── icon.ico             # アプリアイコン(16〜256px)
-└── generate-icon.ps1    # icon.ico の再生成スクリプト(PowerShell)
+├── server.py            # ローカル静的サーバー(/__bye と /__ping 監視でタブを閉じると自動終了)
+├── OneBoard起動.bat    # server.py 起動 + Chrome を新規ウィンドウで開く(CRLF 改行必須)
+├── manifest.webmanifest # PWA マニフェスト(相対URL。start_url/scope とも "./")
+├── sw.js                # Service Worker(https のみ。アプリシェル + holidays.json をキャッシュ)
+├── .nojekyll            # GitHub Pages の Jekyll 処理を無効化(空ファイル)
+├── icons/               # PWA アイコン(icon-192/512(.png) と *-maskable.png)
+├── icon.ico             # デスクトップ/favicon 用アイコン(16〜256px)
+├── generate-icon.ps1    # icon.ico の再生成スクリプト(PowerShell。UTF-8 BOM + CRLF で保存)
+└── generate-pwa-icons.ps1 # icons/*.png の再生成スクリプト(PowerShell。UTF-8 BOM + CRLF で保存)
 ```
+
+- **`.ps1` は UTF-8 BOM 付き + CRLF で保存する。** BOM なし UTF-8 だと Windows PowerShell 5.1 が
+  日本語コメントを ANSI として誤読し、パースエラーになる(`.bat` の CRLF 必須と同種の注意)。
 
 - デスクトップの `OneBoard.lnk`(ショートカット、リポジトリ管理外)は `OneBoard起動.bat` を
   `icon.ico` 付きで起動する。作り直すには:
@@ -76,6 +139,9 @@ OneBoard-app-dev/
 ## データモデル(localStorage 実キー)
 
 ```js
+// 設定: localStorage キー "oneboard.settings.v1" … { homeStation }
+//   homeStation               // 既定の発駅(最寄り駅)。初期値 "新越谷"。events.js の Settings
+
 // 予定: localStorage キー "oneboard.events.v1" … Event[]
 // Event: {
 //   id,                       // UUID
@@ -84,6 +150,10 @@ OneBoard-app-dev/
 //   allDay,                   // true なら時刻なし
 //   startTime, endTime,       // "HH:MM" | null(allDay=false のときのみ)
 //   note,
+//   location,                 // 場所(住所)。"" なら地図リンクなし。押下時のみ Google マップへ
+//   fromStation, toStation,   // 発駅 / 着駅。両方あれば「経路を調べる」= Yahoo!乗換案内(押下時のみ)
+//                             // 発駅が "" のときは Settings.homeStation で補う
+//   routeMemo,                // 経路・アクセス。端末内メモのみ(外部送信なし)
 //   color,                    // 'blue'|'green'|'orange'|'red'|'purple'|'gray'
 //   recurrence:               // null(単発)
 //       | { type:'monthlyDay', day:1..31 }
@@ -107,6 +177,38 @@ OneBoard-app-dev/
 4. 起動して上部バナーが消えることを確認
    - 「今年＋来年」が `coveredYears` にそろえばバナーは出ない
    - 現在の同梱範囲: 2024〜2027年
+
+## GitHub Pages 公開手順(齋藤さんが実行)
+
+Claude Code からはリモート作成・Pages 有効化はできない(リモート未設定・`gh` 未インストール)。
+ファイル一式をコミットしたうえで、以下を齋藤さんが実行する。
+
+1. GitHub で**空のリポジトリ**を作成(名前は任意。相対パス設計なので URL 名に依存しない)
+2. ローカルで:
+   ```
+   git remote add origin https://github.com/<ユーザー名>/<リポジトリ名>.git
+   git push -u origin master
+   ```
+3. GitHub → **Settings → Pages** → Source:「Deploy from a branch」→ Branch: `master` /`(root)` → Save
+4. 数分後 `https://<ユーザー名>.github.io/<リポジトリ名>/` を開く(← これがスマホ版のURL)
+5. スマホの Chrome でそのURLを開き、メニュー →「ホーム画面に追加」。
+   スタンドアロン起動・アイコン・(機内モードで)オフライン表示を確認する。
+
+- ブランチは `master` のまま公開可。`main` に揃えたい場合は `git branch -m master main` してから
+  push し、手順3の Branch を `main` にする。
+- 公開後、`README.md` と下記のURL欄を実際のURLに更新する。
+- 公開URL: (未公開)
+
+## SW キャッシュ更新手順
+
+`index.html` / `style.css` / `events.js` / `app.js` / アイコン / `holidays.json` を変更したら:
+
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する
+2. コミット・push(GitHub Pages に反映)
+3. スマホ側は、次回オンラインで開いたときに新 SW が入り、その次の起動から新版になる
+   (`skipWaiting` + `clients.claim` 済みだが、確実には一度アプリを閉じて開き直す)
+
+- PC版(localhost)は SW を使わないので、この手順は不要(`server.py` が `no-store` 配信)。
 
 ## 個人情報保護の運用ルール
 

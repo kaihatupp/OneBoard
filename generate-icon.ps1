@@ -1,4 +1,4 @@
-# OneBoard アイコン生成スクリプト
+﻿# OneBoard アイコン生成スクリプト
 # icon.ico(16/32/48/64/128/256 px の非圧縮 32bit ICO)を作成する。
 # 使い方: PowerShell で  .\generate-icon.ps1
 

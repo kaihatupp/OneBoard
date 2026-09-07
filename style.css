@@ -40,6 +40,9 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
+  /* PWA スタンドアロン起動時のノッチ/ホームバー対策 */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 body.modal-open { overflow: hidden; }
@@ -147,7 +150,9 @@ main {
 .weekday-row,
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* minmax(0, 1fr) にしないと、中身(長いチップ)の幅で列が広がり、
+     曜日ヘッダーと日付セルの縦線がズレる。 */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1px;
 }
 
@@ -185,6 +190,10 @@ main {
   flex-direction: column;
   gap: 3px;
   transition: background 0.12s;
+  /* グリッド列(1fr)が中身の長さで広がらないようにする。
+     これが無いと長いタイトルのチップで曜日とセルがズレる。 */
+  min-width: 0;
+  overflow: hidden;
 }
 .day-cell:hover { background: #f7f9fc; }
 .day-cell:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
@@ -197,10 +206,12 @@ main {
   align-items: baseline;
   gap: 5px;
   min-height: 18px;
+  min-width: 0;
 }
 .day-num {
   font-size: 13px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 .day-cell.is-sun .day-num { color: var(--sun); }
 .day-cell.is-sat .day-num { color: var(--sat); }
@@ -210,6 +221,7 @@ main {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .chips {
@@ -217,6 +229,7 @@ main {
   flex-direction: column;
   gap: 2px;
   overflow: hidden;
+  min-width: 0;
 }
 .chip {
   font-size: 11px;
@@ -228,6 +241,8 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
   border-left: 3px solid rgba(0, 0, 0, 0.22);
+  min-width: 0;
+  max-width: 100%;
 }
 .chip.is-repeat::before { content: "↻ "; }
 .chip-more {
@@ -310,7 +325,8 @@ main {
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
-  font-size: 14px;
+  /* 16px 未満だと iOS がフォーカス時に自動ズームする。スマホでも据え置き。 */
+  font-size: 16px;
   width: 100%;
 }
 .field textarea { resize: vertical; }
@@ -322,16 +338,27 @@ main {
 .field.checkbox span { font-weight: 500; color: var(--text); }
 .field.checkbox input { width: auto; }
 
-.time-row {
+.time-row,
+.dual-row {
   flex-direction: row;
   gap: 12px;
 }
-.time-row label {
+.time-row label,
+.dual-row label {
   display: flex;
   flex-direction: column;
   gap: 4px;
   flex: 1;
+  min-width: 0;
 }
+
+/* 「この発駅を既定にする」は発駅・着駅のすぐ下に寄せる */
+#ev-home-row { margin-top: -4px; }
+#ev-home-row + .hint { margin-top: 2px; }
+
+/* 「貼り付けを整形」ボタン付きのヒント行 */
+#ev-route-hint { display: flex; align-items: baseline; gap: 8px; }
+#ev-route-hint .ghost.small { flex-shrink: 0; }
 
 .repeat-detail {
   background: #f7f9fc;
@@ -390,15 +417,56 @@ main {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.day-event-loc {
+  font-size: 13px;
+  margin-top: 4px;
+  word-break: break-word;
+}
+.day-event-loc .map-link { white-space: nowrap; }
 .day-event button { flex-shrink: 0; }
 
 .muted { color: var(--muted); font-size: 14px; }
 
-/* ---------- レスポンシブ(PC優先。狭幅でも崩れないように) ---------- */
+/* ---------- レスポンシブ(PC優先。スマホは PWA として単体運用) ---------- */
 @media (max-width: 640px) {
-  .app-header { gap: 10px; }
-  #add-event-btn { margin-left: 0; width: 100%; }
-  .day-cell { min-height: 78px; }
+  main { padding: 10px; }
+
+  /* ヘッダー: タイトル+ナビを1段、追加ボタンを全幅で下段に */
+  .app-header { gap: 8px 10px; padding: 10px 12px; }
+  .app-title { font-size: 18px; }
+  .cal-nav { width: 100%; justify-content: center; }
+  .cal-nav button { min-height: 40px; padding: 6px 12px; }
+  .cal-nav .cur-month { flex: 1; max-width: 168px; min-width: 0; font-size: 15px; }
+  #add-event-btn { margin-left: 0; width: 100%; min-height: 44px; }
+
+  /* カレンダー: 6週が縦に収まるようセルを圧縮。7列グリッドは維持 */
+  .weekday { padding: 6px 0; font-size: 12px; }
+  .day-cell { min-height: 72px; padding: 3px 4px 5px; gap: 2px; }
   .day-holiday-label { display: none; }
-  .cal-nav .cur-month { min-width: 96px; font-size: 14px; }
+  .chip { font-size: 10px; padding: 1px 4px; }
+  .chip-more { font-size: 10px; }
+
+  /* モーダル: 画面幅いっぱい。本文だけスクロールしてヘッダー/フッターは常時表示 */
+  .modal-overlay { padding: 8px; }
+  .modal, .modal.narrow {
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  #event-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  .modal-head, .modal-foot { flex-shrink: 0; }
+  .modal-body { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .modal-foot .primary,
+  .modal-foot .ghost,
+  .modal-foot .danger { min-height: 44px; }
+  .day-event button { min-height: 36px; padding: 6px 12px; }
+}
+
+@media (max-width: 400px) {
+  main { padding: 8px 6px; }
+  .day-cell { min-height: 62px; }
+  .day-num { font-size: 12px; }
+  .chip { line-height: 1.3; }
 }
