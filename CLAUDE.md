@@ -20,6 +20,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **完全オフライン完結・自動送信一切なし。** `fetch` / `XMLHttpRequest` / `WebSocket` などで
   ユーザーデータを外部へ自動送信するコードを追加しない。
   - 例外1: 同梱した静的ファイルの読み込みのみ(`holidays.json` を同一オリジンから `fetch`)。
+    スマホ版は起動時に配信データ `data/oneboard.enc.json` も同一オリジンから `fetch` する
+    (`holidays.json` と同種の読み込み)。中身は AES-GCM 暗号文で、パスフレーズは PC・スマホ
+    それぞれのブラウザの `localStorage` にだけ保存され、外部へは出ない。
     起動サーバー(`server.py`)への死活通知 `GET /__ping`(約60秒ごと)と、タブを閉じた
     ときの `POST /__bye`(`sendBeacon`)も同種。いずれも同一オリジンの localhost 宛で
     データは送らず、タブを閉じるとサーバーが自動終了する用途。
@@ -95,18 +98,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     入力欄 16px で iOS 自動ズーム抑止 / セーフエリア対応)
   - GitHub Pages で公開(下記「GitHub Pages 公開手順」)。PC版とはデータ別・同期なし
   - データ構造(`oneboard.events.v1`)は不変(フェーズ2bの同期を見据えて壊さない)
-- **フェーズ2b(設計決定済み・未実装): PC → スマホ の一方向配信**
-  - 使い方の前提: 予定・タスクの入力は原則 PC。スマホは閲覧(+ 後述の捕捉メモ)。
-  - よって「同期(双方向マージ)」ではなく「PC が正本 → スマホは鏡」。マージ・墓標は不要。
-  - データは **暗号化必須**(予定・タスクを公開しない)。ブラウザ標準の Web Crypto で
-    PC が暗号化 → スマホが同じパスフレーズで復号。パスフレーズは2台のブラウザのみが持つ。
-  - **方式A から着手**: アプリに「書き出し / 取り込み」を追加(暗号化 JSON)。
-    PC で書き出し → git push、スマホは Pages 上のファイルを fetch して復号・表示。
-    将来 方式B(server.py に publish エンドポイント)/ 方式C(GitHub API)へ。
-  - 捕捉インボックス: スマホで「後で PC で入力」メモを端末内に記録(カレンダー未登録)。
+- **フェーズ2b・方式A 前半(実装済み): 暗号化書き出し + スマホ自動取得・閲覧専用**
+  - 使い方の前提: 予定・タスクの入力は原則 PC。スマホは閲覧。「PC が正本 → スマホは鏡」
+    (双方向マージ・墓標は不要)。
+  - `crypto.js`(Web Crypto。ライブラリ不使用)で PBKDF2(SHA-256, 21万回)→ AES-GCM 256。
+    パスフレーズは各ブラウザの `localStorage`(`oneboard.sync.v1`)のみ。
+  - ヘッダーの歯車 ⚙ →「データ」モーダル: パスフレーズ / 「暗号化して書き出し」(PCのみ) /
+    「ファイルから取り込み」。
+  - **運用**: PC で「書き出し」→ ダウンロードした `oneboard.enc.json` をリポジトリの
+    `data/` に置く → `git push` → 数分でスマホに反映。
+  - スマホ(`IS_VIEWER` = localhost 以外)は起動時に `data/oneboard.enc.json` を fetch →
+    復号 → 表示。**閲覧専用**(`body.viewer-mode` で追加・編集・削除UIを隠す)。
+    ヘッダーに「最終更新 M/D H:M」/「オフライン…」/「未取得」を表示。
+    取得失敗時は前回取り込んだ内容のまま(SW でオフライン閲覧可)。
+  - 取り込みは**全置換 + confirm**(PCでもバックアップからの復元に使える)。
+  - `data/oneboard.enc.json` の初回はマサさんが PC で最初に「書き出し」→ 配置 → push して作る。
+- **フェーズ2b・残り(未実装)**
+  - 捕捉インボックス(A3): スマホで「後で PC で入力」メモを端末内に記録(カレンダー未登録)。
     方式A では取り込みファイルに同梱して PC 側に表示。将来は暗号化 `inbox.json` で自動化。
-  - 詳細な設計整理は別ドキュメント(artifact)にまとめてある。
-  - 既存の `oneboard.events.v1` 構造は不変(包む形にするだけ)。
+  - 方式B(server.py に publish エンドポイント)/ 方式C(GitHub API 直叩き)。
+  - 設計整理は artifact「OneBoard データ配信設計」。既存の `oneboard.events.v1` 構造は不変。
 - **将来フェーズ(構想・未着手)**
   - タスク管理機能。重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)
   - 通知
@@ -121,10 +132,12 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
+├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
+├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
 ├── server.py            # ローカル静的サーバー(/__bye と /__ping 監視でタブを閉じると自動終了)
 ├── OneBoard起動.bat    # server.py 起動 + Chrome を新規ウィンドウで開く(CRLF 改行必須)
 ├── manifest.webmanifest # PWA マニフェスト(相対URL。start_url/scope とも "./")
-├── sw.js                # Service Worker(https のみ。アプリシェル + holidays.json をキャッシュ)
+├── sw.js                # Service Worker(https のみ。アプリシェル + holidays.json。データは network-first)
 ├── .nojekyll            # GitHub Pages の Jekyll 処理を無効化(空ファイル)
 ├── icons/               # PWA アイコン(icon-192/512(.png) と *-maskable.png)
 ├── icon.ico             # デスクトップ/favicon 用アイコン(16〜256px)
@@ -173,9 +186,21 @@ OneBoard-app-dev/
 //   linkedTaskId: null,       // ★将来のタスク連動用の予約フィールド(現状未使用)
 //   createdAt, updatedAt
 // }
+
+// 同期設定: localStorage キー "oneboard.sync.v1" … app.js の SyncPrefs
+//   { passphrase,               // 暗号化パスフレーズ(この端末にだけ保存。外部送信なし)
+//     lastPulledAt,             // スマホが最後に取り込んだ時刻(ISO)
+//     lastPublishedAt }         // 取り込んだデータの publishedAt(= PC が書き出した時刻)
+
+// 書き出しファイル data/oneboard.enc.json … crypto.js のエンベロープ(暗号文)
+//   { f:"oneboard-enc", v:1,
+//     kdf:{name:"PBKDF2",hash:"SHA-256",iter,salt(b64)}, cipher:"AES-GCM", iv(b64), ct(b64) }
+//   復号後のペイロード:
+//   { kind:"oneboard-export", version:1, publishedAt(ISO), events:Event[], settings:{homeStation} }
 ```
 
 - 古い形式のデータは `EventStore.normalize()` が後方互換で補完する(実データを壊さない)。
+- 取り込み時は `EventStore.replaceAll()` / `Settings.replaceAll()` が全置換する(方式Aは一方向のため)。
 - 繰り返しの展開は `eventOccurrences()` / `buildOccurrenceMap()` が担当。祝日判定は `Holidays.nameOf()`。
 
 ## 祝日データの更新手順(Claude Code 運用)
@@ -204,9 +229,10 @@ OneBoard-app-dev/
 
 ## SW キャッシュ更新手順
 
-`index.html` / `style.css` / `events.js` / `app.js` / アイコン / `holidays.json` を変更したら:
+`index.html` / `style.css` / `events.js` / `app.js` / `crypto.js` / アイコン / `holidays.json` を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v2`)
+   ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
 2. コミット・push(GitHub Pages に反映)
 3. スマホ側は、次回オンラインで開いたときに新 SW が入り、その次の起動から新版になる
    (`skipWaiting` + `clients.claim` 済みだが、確実には一度アプリを閉じて開き直す)

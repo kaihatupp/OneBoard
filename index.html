@@ -30,6 +30,8 @@
       <button type="button" id="next-month" aria-label="次の月">&#9654;</button>
       <button type="button" id="today-btn" class="today-btn">今日</button>
     </div>
+    <span id="data-freshness" class="data-freshness" hidden></span>
+    <button type="button" id="data-btn" class="icon-btn" aria-label="データ" title="データ(書き出し / 取り込み)">&#9881;</button>
     <button type="button" id="add-event-btn" class="primary">＋ 予定を追加</button>
   </header>
 
@@ -217,6 +219,49 @@
     </div>
   </div>
 
+  <!-- データ(暗号化書き出し / 取り込み) -->
+  <div class="modal-overlay" id="data-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="data-modal-title">
+      <div class="modal-head">
+        <h2 id="data-modal-title">データ</h2>
+        <button type="button" class="modal-close" data-close="data-modal" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>パスフレーズ</span>
+          <input type="password" id="sync-pass" autocomplete="off" spellcheck="false"
+                 placeholder="PC とスマホで同じ言葉を使います">
+        </label>
+        <p class="hint">
+          この端末にだけ保存されます。書き出したファイルはこのパスフレーズが無いと開けません。
+          変更したら PC で書き出し直してください。
+        </p>
+
+        <div id="data-export-row">
+          <hr class="data-sep">
+          <button type="button" class="primary" id="data-export-btn">暗号化して書き出し</button>
+          <p class="hint">
+            ダウンロードした <code>oneboard.enc.json</code> を、リポジトリの
+            <code>data/</code> フォルダに置いて <code>git push</code> すると、スマホに反映されます。
+          </p>
+        </div>
+
+        <hr class="data-sep">
+        <div class="field">
+          <span>ファイルから取り込み</span>
+          <input type="file" id="data-import" accept=".json,application/json">
+        </div>
+        <p class="hint">取り込むと、この端末の予定と設定は<strong>すべて置き換わります</strong>。</p>
+
+        <p id="data-status" class="hint data-status" hidden></p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" data-close="data-modal">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="crypto.js"></script>
   <script src="events.js"></script>
   <script src="app.js"></script>
 </body>

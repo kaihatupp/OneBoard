@@ -86,8 +86,7 @@ const Settings = (() => {
 
   function get(key) { return data[key]; }
 
-  function set(key, value) {
-    data[key] = value;
+  function save() {
     try {
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch (e) {
@@ -95,7 +94,19 @@ const Settings = (() => {
     }
   }
 
-  return { load, get, set };
+  function set(key, value) {
+    data[key] = value;
+    save();
+  }
+
+  /** 取り込み時に設定を丸ごと差し替える(既知キーだけ採用) */
+  function replaceAll(obj) {
+    data = { ...DEFAULTS, ...(obj && typeof obj === 'object' ? obj : {}) };
+    save();
+    return data;
+  }
+
+  return { load, get, set, save, replaceAll };
 })();
 
 /* ---------- 予定ストア ---------- */
@@ -208,7 +219,14 @@ const EventStore = (() => {
     persist();
   }
 
-  return { load, all, get, upsert, remove, addException };
+  /** 取り込み時に予定を丸ごと差し替える。古い形式も normalize で吸収する。 */
+  function replaceAll(list) {
+    events = Array.isArray(list) ? list.map(normalize) : [];
+    persist();
+    return events.length;
+  }
+
+  return { load, all, get, upsert, remove, addException, replaceAll };
 })();
 
 function clampInt(v, min, max, fallback) {
