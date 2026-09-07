@@ -133,10 +133,16 @@ const DATA_PAYLOAD_VERSION = 1;
 function bindDataModal() {
   const passEl = document.getElementById('sync-pass');
   passEl.value = SyncPrefs.get('passphrase') || '';
+  // パスフレーズを入れ終えたら(フォーカスが外れた / Enter)、スマホは自動で取得する。
   passEl.addEventListener('change', () => {
-    SyncPrefs.set({ passphrase: passEl.value });
+    SyncPrefs.set({ passphrase: passEl.value.trim() });
+    if (IS_VIEWER && passEl.value.trim()) pullPublishedData();
   });
 
+  document.getElementById('data-pull-btn').addEventListener('click', () => {
+    SyncPrefs.set({ passphrase: passEl.value.trim() });
+    pullPublishedData();
+  });
   document.getElementById('data-export-btn').addEventListener('click', onExportData);
   document.getElementById('data-import').addEventListener('change', (e) => {
     const file = e.target.files && e.target.files[0];
@@ -241,6 +247,9 @@ async function pullPublishedData() {
     text = await res.text();
   } catch (e) {
     // オフライン or 未配信。前回取り込んだ内容のまま表示する。
+    const has = EventStore.all().length > 0;
+    setDataStatus(has ? '配信データを取得できませんでした(前回の内容を表示中)。'
+      : 'まだ配信データがありません。PC で書き出して push してください。', has ? null : 'error');
     updateFreshness();
     return;
   }
@@ -249,7 +258,7 @@ async function pullPublishedData() {
   try {
     payload = await obDecrypt(text, pass);
   } catch (e) {
-    setDataStatus(e.message + '(データモーダルでパスフレーズを確認してください)', 'error');
+    setDataStatus(e.message + '(PC と同じパスフレーズか確認してください)', 'error');
     openModal('data-modal');
     updateFreshness();
     return;
@@ -257,6 +266,8 @@ async function pullPublishedData() {
   if (payload && payload.kind === DATA_PAYLOAD_KIND) {
     applyPayload(payload);
     render();
+    setDataStatus(`取得しました(予定 ${EventStore.all().length} 件)。`, 'ok');
+    closeModal('data-modal');
   }
   updateFreshness();
 }
