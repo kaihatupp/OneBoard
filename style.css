@@ -199,6 +199,7 @@ button.icon-btn:hover { background: #eef1f5; color: var(--text); }
 .data-status.is-error { color: var(--danger); }
 .data-status.is-ok { color: var(--chip-green); }
 #data-auto-row { margin: 8px 0 10px; }
+#data-restore-btn { margin-top: 4px; }
 
 #data-paste-details { margin-top: 8px; }
 #data-paste-details summary { cursor: pointer; }

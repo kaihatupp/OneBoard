@@ -274,6 +274,13 @@
         </details>
         <p class="hint">取り込むと、この端末の予定と設定は<strong>すべて置き換わります</strong>(捕捉メモは追記)。</p>
 
+        <button type="button" class="ghost small" id="data-restore-btn" hidden>GitHub から復元</button>
+        <p class="hint" id="data-restore-hint" hidden>
+          この PC にバックアップファイルが無いときの最終手段。GitHub Pages 上の
+          <code>data/oneboard.enc.json</code> を直接取得して<strong>全置換</strong>します
+          (パスフレーズ必須 / 確認あり)。
+        </p>
+
         <p id="data-status" class="hint data-status" hidden></p>
       </div>
       <div class="modal-foot">

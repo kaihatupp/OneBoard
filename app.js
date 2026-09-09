@@ -18,6 +18,10 @@ const CAN_PUBLISH = !IS_VIEWER && location.protocol.startsWith('http');
 // 配信データファイル(暗号化済み)。PC が書き出し → data/ に置いて push → スマホが取得。
 const PUBLISHED_DATA_URL = 'data/oneboard.enc.json';
 
+// GitHub Pages 上の同じ配信データ(絶対URL)。PC 故障・買い替えで手元にバックアップが
+// 無いとき、「GitHub から復元」ボタンでここから直接取得して全置換する(→ 設計制約の例外5)。
+const GITHUB_DATA_URL = 'https://kaihatupp.github.io/OneBoard/data/oneboard.enc.json';
+
 // 自動反映(方式B の上に載せる): 予定・設定を変えたらこの時間だけ待って /__publish。
 // 連続編集はまとめて 1 回に畳む。
 const AUTO_PUBLISH_DELAY_MS = 5000;
@@ -323,6 +327,12 @@ function bindDataModal() {
       importEnvelopeText(text).then(() => { ta.value = ''; });
     });
   }
+
+  // PC 復元(GitHub から直接取得)。PC のみ。
+  const restoreBtn = document.getElementById('data-restore-btn');
+  restoreBtn.hidden = !CAN_PUBLISH;
+  document.getElementById('data-restore-hint').hidden = !CAN_PUBLISH;
+  restoreBtn.addEventListener('click', onRestoreFromGitHub);
 }
 
 function setDataStatus(msg, kind) {
@@ -478,6 +488,36 @@ async function onImportData(file) {
     setDataStatus('ファイルを読めませんでした。', 'error');
     return;
   }
+  await importEnvelopeText(text);
+}
+
+// PC 復元: GitHub Pages 上の配信データを直接取得して全置換する。
+// localhost から github.io への唯一の外部 fetch(→ 設計制約の例外5)。送るデータは無い。
+// 復号・種類判定・全置換 + confirm は既存の importEnvelopeText() をそのまま再利用。
+async function onRestoreFromGitHub() {
+  const pass = (document.getElementById('sync-pass').value || '').trim()
+    || SyncPrefs.get('passphrase');
+  if (!pass) {
+    setDataStatus('先にパスフレーズを入力してください。', 'error');
+    return;
+  }
+  const btn = document.getElementById('data-restore-btn');
+  btn.disabled = true;
+  setDataStatus('GitHub から配信データを取得中…');
+  let text;
+  try {
+    // no-store でブラウザキャッシュは無視。GitHub の CDN が最大 10 分キャッシュするため、
+    // 取り違え防止に時刻クエリを付ける(送信する情報ではない)。
+    const res = await fetch(`${GITHUB_DATA_URL}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    text = await res.text();
+  } catch (e) {
+    setDataStatus(`GitHub から取得できませんでした(${e.message})。`
+      + 'オンラインか、公開URLが正しいか確認してください。既存のデータはそのままです。', 'error');
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
   await importEnvelopeText(text);
 }
 
