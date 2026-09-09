@@ -636,6 +636,20 @@ body.tasks-view #add-event-btn { display: none !important; }
 }
 .task-item > button { flex-shrink: 0; }
 
+/* 区分セクションの見出し(フェーズ3b)。#task-list の直下に <li> として並ぶ */
+.task-section-head {
+  list-style: none;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 3px 2px;
+  margin-top: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.task-section-head:first-child { margin-top: 0; }
+.task-section-head.is-inprogress { color: var(--danger); }
+
 @media (max-width: 640px) {
   #task-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
   .view-tabs { order: 2; }
