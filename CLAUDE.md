@@ -232,9 +232,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     全セクション 0 件のときだけ `#task-empty` を表示。
   - セクション内の並びは 3a と同じ `sortTasks()`(期限日順 → 作成順)。
   - 境界計算は events.js の `toYmd()` / `fromYmd()` を流用(重複実装なし)。
+  - 一覧行(3b-2): **件名中心のコンパクトな 1 行**。本文プレビューは出さない。行に残すのは
+    件名(長いと省略・ホバーで全文)+ メタ(進行中 / 期限 M/D(曜)/ 本文ありは 📝)だけ。
+    **行全体をクリック/タップ(Enter・Space も可)で `#task-modal` が開き**、本文を含む全内容を
+    確認・編集できる(3a の編集モーダルをそのまま流用。閲覧専用モーダルは作らない)。
+    行内の「編集」ボタンは廃止。`#task-modal` の本文欄は長文メモ向けに大きめ
+    (`rows=14` + `#task-body { min-height:200px }`、縦ドラッグ可)。
   - 稼働確認済み(2026-09-09): 各区分への振り分け(今日=水曜、月曜始まりの週境界 9/13・9/14・9/20、
     月末境界 9/30・10/1・10/31)、期限切れセクションの表示/非表示切替、0 件セクションの省略、
-    全消し時の `#task-empty` を実ブラウザで確認。
+    全消し時の `#task-empty`、一覧が件名中心になること・行クリックで本文まで確認できることを実ブラウザで確認。
 - **フェーズ3・残り(未実装)**
   - 3c: 携帯同期(スマホは閲覧専用ミラー)。`oneboard.tasks.v1` が対象。テンプレートは対象外
   - 3d: テンプレート(記載パターン)機能
@@ -401,7 +407,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v8`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v9`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
