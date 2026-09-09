@@ -190,8 +190,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - **方式C**(GitHub API 直叩き): server.py を使わない配信。方式B で困ったときの代替。
     スマホ限定トークンがあれば捕捉インボックスの PC 取り込みも自動化できる(現状は手動受け渡し)。
   - 設計整理は artifact「OneBoard データ配信設計」。既存の `oneboard.events.v1` 構造は不変。
+- **フェーズ3a(実装済み): タスク管理の土台**
+  - 現在 Outlook で行っているタスク管理を OneBoard へ段階的に移行する第一歩。
+    今回は「別ビュー + データ構造 + 基本の CRUD」だけ。
+  - ヘッダーに「カレンダー / タスク」タブ(`#tab-calendar` / `#tab-tasks`)。`switchView()` で
+    `#view-calendar` ⇄ `#view-tasks` を出し分け(`body.tasks-view` でカレンダー専用の月ナビ・
+    「予定を追加」を隠す)。最後に開いていたビューは `sessionStorage` の `oneboard.view` に記憶。
+  - タスク画面 = 単純な一覧(`#task-list`)。区分分けなし。並びは「進行中を先頭 → 期限日
+    (未設定は末尾)→ 作成順」だけ。「進行中」のタスクは件名・メタを赤字表示。
+  - CRUD: `#task-modal`(件名 / 期限日 = `<input type="date">` / 進行中トグル / 本文)。
+    追加・編集・削除。閉じる操作は app.js の `bindModals()` が面倒を見る(`.modal-overlay` +
+    `[data-close]`)。`openModal` / `closeModal` は app.js の共有関数。
+  - **既存のカレンダー(index.html / app.js / style.css / events.js)は変更なし**。
+    ロジックは新規 `tasks.js`(app.js の後に読み込み)。index.html はタブ + `<section>` +
+    `#task-modal` の追加のみ、style.css はタスク用スタイルの追記のみ。
+  - 保存は `localStorage` の `oneboard.tasks.v1` だけ。**外部送信は一切なし**
+    (カレンダー側の設計制約をそのまま踏襲。タスク追加で新たな外部通信は発生しない)。
+  - 稼働確認済み(2026-09-09): 追加・編集(createdAt 保持 / updatedAt 更新)・削除・
+    localStorage 保存・リロード後の復元・ビュー切り替え・カレンダー側への影響なしを実ブラウザで確認。
+  - 予約フィールド: `moveRule`(3f 一括移動)/ `templateName`(3d テンプレート)は今回は常に `null`。
+    `oneboard.tasks.v1` はフェーズ3c で携帯同期の対象になる予定 → 後方互換を意識し無闇に変更しない。
+    将来の `taskTemplates`(パターン)は同期対象にしない方針。
+- **フェーズ3・残り(未実装)**
+  - 3b: 区分表示(今日/明日/今週/来週/今月/来月/後で のセクション)+ 進行中タスクの最上段固定エリア
+  - 3c: 携帯同期(スマホは閲覧専用ミラー)。`oneboard.tasks.v1` が対象。テンプレートは対象外
+  - 3d: テンプレート(記載パターン)機能。3f: 一括移動ボタン・移動ルール。3g: カレンダー連携表示
 - **将来フェーズ(構想・未着手)**
-  - タスク管理機能。重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)
+  - 重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)→ 3g で検討
   - 通知
 
 ## ファイル構成
@@ -204,13 +229,14 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 │                         #   + 配信(SyncPrefs / 自動反映)・捕捉インボックス(InboxStore / InboxAck)
+├── tasks.js             # タスク管理(フェーズ3a)。TaskStore / ビュー切替 / タスクフォーム。app.js の後に読み込み
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
 ├── server.py            # ローカルサーバー(/__bye /__ping で自動終了 + /__publish で配信データを git push)
 ├── OneBoard起動.bat    # server.py 起動 + Chrome を新規ウィンドウで開く(CRLF 改行必須)
 ├── manifest.webmanifest # PWA マニフェスト(相対URL。start_url/scope とも "./")
-├── sw.js                # Service Worker(https のみ。アプリシェル + holidays.json。データは network-first)
+├── sw.js                # Service Worker(https のみ。アプリシェル + crypto/tasks.js + holidays.json。配信データは network-first)
 ├── .nojekyll            # GitHub Pages の Jekyll 処理を無効化(空ファイル)
 ├── icons/               # PWA アイコン(icon-192/512(.png) と *-maskable.png)
 ├── icon.ico             # デスクトップ/favicon 用アイコン(16〜256px)
@@ -259,6 +285,20 @@ OneBoard-app-dev/
 //   linkedTaskId: null,       // ★将来のタスク連動用の予約フィールド(現状未使用)
 //   createdAt, updatedAt
 // }
+
+// タスク: localStorage キー "oneboard.tasks.v1" … Task[](tasks.js の TaskStore)
+// Task: {
+//   id,                       // UUID
+//   title,                    // 件名(自由記述)
+//   due,                      // "YYYY-MM-DD" | null(期限日)
+//   inProgress,               // true/false。true なら一覧で件名・メタを赤字表示
+//   moveRule,                 // ★将来の一括移動(3f)用の予約フィールド。現状は常に null
+//   templateName,             // ★将来のテンプレート(3d)用の予約フィールド。現状は常に null
+//   body,                     // 本文(自由記述)
+//   createdAt, updatedAt
+// }
+//   ※ 3c で携帯同期の対象になる予定。後方互換を意識して無闇に変更しない。
+//   ※ 並び順は tasks.js の sortTasks(): 進行中 → 期限日(null 末尾)→ 作成順。
 
 // 同期設定: localStorage キー "oneboard.sync.v1" … app.js の SyncPrefs
 //   { passphrase,               // 暗号化パスフレーズ(この端末にだけ保存。外部送信なし)
@@ -331,10 +371,12 @@ OneBoard-app-dev/
 
 ## SW キャッシュ更新手順
 
-`index.html` / `style.css` / `events.js` / `app.js` / `crypto.js` / アイコン / `holidays.json` を変更したら:
+`index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
+を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v6`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v7`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
+   ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
 3. スマホ側は、次回オンラインで開いたときに新 SW が入り、その次の起動から新版になる
    (`skipWaiting` + `clients.claim` 済みだが、確実には一度アプリを閉じて開き直す)
