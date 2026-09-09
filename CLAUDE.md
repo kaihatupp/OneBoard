@@ -196,8 +196,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - ヘッダーに「カレンダー / タスク」タブ(`#tab-calendar` / `#tab-tasks`)。`switchView()` で
     `#view-calendar` ⇄ `#view-tasks` を出し分け(`body.tasks-view` でカレンダー専用の月ナビ・
     「予定を追加」を隠す)。最後に開いていたビューは `sessionStorage` の `oneboard.view` に記憶。
-  - タスク画面 = 単純な一覧(`#task-list`)。区分分けなし。並びは「進行中を先頭 → 期限日
-    (未設定は末尾)→ 作成順」だけ。「進行中」のタスクは件名・メタを赤字表示。
+  - タスク画面(`#task-list`)。並びは `sortTasks()` =「進行中を先頭 → 期限日(未設定は末尾)
+    → 作成順」。「進行中」のタスクは件名・メタを赤字表示。
   - CRUD: `#task-modal`(件名 / 期限日 = `<input type="date">` / 進行中トグル / 本文)。
     追加・編集・削除。閉じる操作は app.js の `bindModals()` が面倒を見る(`.modal-overlay` +
     `[data-close]`)。`openModal` / `closeModal` は app.js の共有関数。
@@ -211,10 +211,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 予約フィールド: `moveRule`(3f 一括移動)/ `templateName`(3d テンプレート)は今回は常に `null`。
     `oneboard.tasks.v1` はフェーズ3c で携帯同期の対象になる予定 → 後方互換を意識し無闇に変更しない。
     将来の `taskTemplates`(パターン)は同期対象にしない方針。
+- **フェーズ3b(実装済み): タスクの区分表示**
+  - `#task-list` を Outlook のバケット表示に近い区分セクションに分けて表示。
+    順序: **進行中 → 期限切れ → 今日 → 明日 → 今週 → 来週 → 今月 → 来月 → 後で**。
+    セクション見出しは `<li class="task-section-head">`(件数付き)。カレンダー側は変更なし、
+    追加は `tasks.js` と `style.css` のタスク用スタイルのみ。
+  - 区分の定義(`bucketOf()` / `computeTaskBoundaries()`。判定は `due` から**毎回計算**。
+    タスクには区分を保存しない):
+    - 進行中: `inProgress === true`(due に関係なく最上段。件名・メタ・見出しを赤字)
+    - 期限切れ: `inProgress !== true` かつ `due < 今日`
+    - 今日 / 明日: `due` が今日 / 明日
+    - 今週: 明後日〜今週日曜(今日・明日を除く残り)
+    - 来週: 翌週の月〜日
+    - 今月: 来週より後で今月末まで
+    - 来月: 翌月内(来週にかかる分は「来週」優先)
+    - 後で: 来月末より先、または `due` が `null`
+  - **週の始まりは月曜**(タスク側だけの基準。`daysSinceMonday = (getDay()+6)%7`。
+    カレンダーは日曜始まりのまま変更なし)。
+  - 各セクションは**該当 0 件なら見出しごと非表示**(「期限切れ」「今日」等も含む)。
+    全セクション 0 件のときだけ `#task-empty` を表示。
+  - セクション内の並びは 3a と同じ `sortTasks()`(期限日順 → 作成順)。
+  - 境界計算は events.js の `toYmd()` / `fromYmd()` を流用(重複実装なし)。
+  - 稼働確認済み(2026-09-09): 各区分への振り分け(今日=水曜、月曜始まりの週境界 9/13・9/14・9/20、
+    月末境界 9/30・10/1・10/31)、期限切れセクションの表示/非表示切替、0 件セクションの省略、
+    全消し時の `#task-empty` を実ブラウザで確認。
 - **フェーズ3・残り(未実装)**
-  - 3b: 区分表示(今日/明日/今週/来週/今月/来月/後で のセクション)+ 進行中タスクの最上段固定エリア
   - 3c: 携帯同期(スマホは閲覧専用ミラー)。`oneboard.tasks.v1` が対象。テンプレートは対象外
-  - 3d: テンプレート(記載パターン)機能。3f: 一括移動ボタン・移動ルール。3g: カレンダー連携表示
+  - 3d: テンプレート(記載パターン)機能
+  - 3f: 一括移動ボタン・移動ルール(前倒し/後ろ倒しの判定ロジックもここで具体化)
+  - 3g: カレンダー連携表示
 - **将来フェーズ(構想・未着手)**
   - 重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)→ 3g で検討
   - 通知
@@ -229,7 +254,7 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 │                         #   + 配信(SyncPrefs / 自動反映)・捕捉インボックス(InboxStore / InboxAck)
-├── tasks.js             # タスク管理(フェーズ3a)。TaskStore / ビュー切替 / タスクフォーム。app.js の後に読み込み
+├── tasks.js             # タスク管理(3a: TaskStore/ビュー切替/CRUD、3b: 区分セクション表示)。app.js の後に読み込み
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
@@ -299,6 +324,8 @@ OneBoard-app-dev/
 // }
 //   ※ 3c で携帯同期の対象になる予定。後方互換を意識して無闇に変更しない。
 //   ※ 並び順は tasks.js の sortTasks(): 進行中 → 期限日(null 末尾)→ 作成順。
+//   ※ 3b: 表示は due から都度計算した区分セクションに分ける(bucketOf。区分はタスクに保存しない。
+//         週の始まりは月曜。0 件のセクションは非表示)。
 
 // 同期設定: localStorage キー "oneboard.sync.v1" … app.js の SyncPrefs
 //   { passphrase,               // 暗号化パスフレーズ(この端末にだけ保存。外部送信なし)
@@ -374,7 +401,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v7`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v8`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
