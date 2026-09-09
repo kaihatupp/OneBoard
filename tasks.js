@@ -259,44 +259,37 @@ function renderTaskList() {
   empty.hidden = total > 0;
 }
 
-// タスク 1 行(3a の一覧行のデザインを踏襲)。
+// タスク 1 行(3b-2: 件名中心のコンパクト行)。
+// 本文プレビューは出さない。行をクリック/タップで #task-modal を開き、そこで全内容を確認・編集する。
 function buildTaskRow(t) {
   const li = document.createElement('li');
   li.className = 'task-item';
   if (t.inProgress) li.classList.add('is-inprogress');
+  li.setAttribute('role', 'button');
+  li.tabIndex = 0;
 
-  const main = document.createElement('div');
-  main.className = 'task-main';
-
-  const title = document.createElement('div');
+  const title = document.createElement('span');
   title.className = 'task-title';
   title.textContent = t.title || '(件名なし)';
-  main.appendChild(title);
+  title.title = t.title || '(件名なし)'; // 省略されたときにホバーで全文
+  li.appendChild(title);
 
   const bits = [];
   if (t.inProgress) bits.push('進行中');
   if (t.due) bits.push('期限 ' + formatDue(t.due));
+  if (t.body) bits.push('📝'); // 本文ありの目印(開くと読める)
   if (bits.length) {
-    const meta = document.createElement('div');
+    const meta = document.createElement('span');
     meta.className = 'task-meta';
     meta.textContent = bits.join(' ・ ');
-    main.appendChild(meta);
+    li.appendChild(meta);
   }
 
-  if (t.body) {
-    const body = document.createElement('div');
-    body.className = 'task-body';
-    body.textContent = t.body;
-    main.appendChild(body);
-  }
-  li.appendChild(main);
-
-  const edit = document.createElement('button');
-  edit.type = 'button';
-  edit.className = 'ghost small';
-  edit.textContent = '編集';
-  edit.addEventListener('click', () => openTaskModal(t));
-  li.appendChild(edit);
+  const open = () => openTaskModal(t);
+  li.addEventListener('click', open);
+  li.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+  });
 
   return li;
 }

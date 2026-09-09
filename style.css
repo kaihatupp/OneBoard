@@ -573,7 +573,7 @@ main {
 }
 
 /* =========================================================================
- * タスク管理(フェーズ3a)- カレンダーの見た目に合わせた追加スタイル
+ * タスク管理(フェーズ3a/3b)- カレンダーの見た目に合わせた追加スタイル
  * ======================================================================= */
 
 /* ビュー切り替えタブ */
@@ -609,32 +609,39 @@ body.tasks-view #add-event-btn { display: none !important; }
   flex-direction: column;
   gap: 8px;
 }
+/* 3b-2: 件名中心のコンパクトな 1 行。行全体がクリックで #task-modal を開く */
 .task-item {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: 10px;
-  padding: 12px;
+  padding: 8px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
+  cursor: pointer;
 }
-.task-main { flex: 1; min-width: 0; }
-.task-title { font-weight: 700; font-size: 15px; word-break: break-word; }
+.task-item:hover { background: #f7f9fc; }
+.task-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.task-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .task-meta {
+  flex-shrink: 0;
   font-size: 12px;
   color: var(--muted);
-  margin-top: 3px;
   font-variant-numeric: tabular-nums;
 }
 .task-item.is-inprogress .task-title,
 .task-item.is-inprogress .task-meta { color: var(--danger); }
-.task-body {
-  font-size: 13px;
-  margin-top: 6px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.task-item > button { flex-shrink: 0; }
+
+/* タスクの本文は長文メモになりがちなので、編集画面では大きめに(さらに縦ドラッグ可) */
+#task-body { min-height: 200px; line-height: 1.6; }
 
 /* 区分セクションの見出し(フェーズ3b)。#task-list の直下に <li> として並ぶ */
 .task-section-head {
@@ -653,6 +660,6 @@ body.tasks-view #add-event-btn { display: none !important; }
 @media (max-width: 640px) {
   #task-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
   .view-tabs { order: 2; }
-  .task-item > button { min-height: 36px; padding: 6px 12px; }
+  .task-item { padding: 10px 12px; } /* タップ領域を少し広げる */
   #task-add-btn { min-height: 44px; }
 }
