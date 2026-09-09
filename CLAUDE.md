@@ -42,6 +42,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     ダウンロード**(`oneboard-inbox.enc.json`)または **クリップボードへコピー**
     (`navigator.clipboard.writeText`)する。どちらも端末内で完結し、ネットワーク送信はしない。
     PC 側はそのファイル/テキストを「データ」画面で取り込む(復号 → `oneboard.inbox.v1` に追記)。
+  - 例外5(GitHub からの復元・ユーザー承認済み): PC の「GitHub から復元」ボタンを
+    **押したときだけ**、GitHub Pages 上の配信データ
+    `https://kaihatupp.github.io/OneBoard/data/oneboard.enc.json` を `fetch`(GET)する。
+    これは `localhost` から `github.io` への**唯一の外部 fetch**。送信するデータは無い
+    (URL の `?t=<時刻>` は GitHub の CDN キャッシュ避けの値のみ)。取りに行くのは
+    **自分が既に公開している** AES-GCM 暗号文で、復号・全置換は既存の `importEnvelopeText()`
+    をそのまま再利用(パスフレーズは PC の `localStorage` / 入力欄。確認ダイアログあり)。
+    用途は PC の故障・買い替え時、手元にバックアップファイルが無い状態からの復元。
+    GitHub Pages は `Access-Control-Allow-Origin: *` を返すため CORS では弾かれない
+    (2026-09-09 確認)。表示条件は `CAN_PUBLISH`(= localhost + http)。
   - 例外2(ユーザー承認済み): 外部サイトへのディープリンク。日別モーダルのリンクを
     **ユーザーが押したときだけ**、必要最小限の項目を URL に載せて新規タブで開く。
     `fetch` は使わずページ遷移のみ。押さない限り送信は発生しない。
@@ -165,7 +175,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     `inboxAck` に載せる。スマホは次回取得時、その id を持つメモを自動で消す(`InboxStore.dropByIds`)。
   - 稼働確認済み(2026-09-09): スマホでメモ →「テキストをコピー」→ PC で貼り付け取り込み →
     「予定にする」で本入力、までの一連を確認。
-- **フェーズ2b・残り(未実装 — 次回の候補)**
+- **フェーズ2b・PC 復元(実装済み): 「GitHub から復元」ボタン**
+  - PC のデータモーダル(取り込み欄)に「GitHub から復元」(`CAN_PUBLISH` のときのみ表示)。
+    `onRestoreFromGitHub()` が `GITHUB_DATA_URL` を `fetch` → テキストを既存の
+    `importEnvelopeText()` へ渡す(復号 → `oneboard-export` 判定 → 全置換 + confirm)。
+  - 用途: PC 故障・買い替えで手元に `oneboard.enc.json` のバックアップが無いとき、
+    公開中の配信データから直接戻す。→ 設計制約の**例外5**(localhost → github.io の外部 fetch)。
+  - GitHub CDN は最大 10 分キャッシュ。`?t=<時刻>` で取り違えを避ける。取得失敗時は
+    エラー表示のみで既存データには触れない。
   - **方式C**(GitHub API 直叩き): server.py を使わない配信。方式B で困ったときの代替。
     スマホ限定トークンがあれば捕捉インボックスの PC 取り込みも自動化できる(現状は手動受け渡し)。
   - 設計整理は artifact「OneBoard データ配信設計」。既存の `oneboard.events.v1` 構造は不変。
@@ -296,7 +313,7 @@ OneBoard-app-dev/
 
 `index.html` / `style.css` / `events.js` / `app.js` / `crypto.js` / アイコン / `holidays.json` を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v5`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v6`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
 2. コミット・push(GitHub Pages に反映)
 3. スマホ側は、次回オンラインで開いたときに新 SW が入り、その次の起動から新版になる
