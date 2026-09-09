@@ -26,11 +26,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     起動サーバー(`server.py`)への死活通知 `GET /__ping`(約60秒ごと)と、タブを閉じた
     ときの `POST /__bye`(`sendBeacon`)も同種。いずれも同一オリジンの localhost 宛で
     データは送らず、タブを閉じるとサーバーが自動終了する用途。
-  - 例外3(方式B・ユーザー承認済み): PC アプリの「スマホに反映」ボタンを**押したときだけ**、
-    暗号化済みの配信データを `POST /__publish`(同一オリジンの localhost)へ送る。
-    `server.py` がそれを `data/oneboard.enc.json` に書き、`git commit` + `git push`(この
-    リポジトリの `origin` = マサさん自身の GitHub)する。パスフレーズは送らない(暗号化は
-    ブラウザ側で完了済み)。自動では走らない。失敗時は「ファイルに書き出し」で手動 push に切替可。
+  - 例外3(方式B・ユーザー承認済み): PC アプリが暗号化済みの配信データを
+    `POST /__publish`(同一オリジンの localhost)へ送る。`server.py` がそれを
+    `data/oneboard.enc.json` に書き、`git commit` + `git push`(このリポジトリの
+    `origin` = マサさん自身の GitHub)する。パスフレーズは送らない(暗号化はブラウザ側で完了済み)。
+    送信のきっかけは 2 つ:
+      (a) 「スマホに反映」ボタンを押したとき、
+      (b) **自動反映**(既定オン・ユーザー承認済み): 予定・設定を変更してから数秒後
+          (`AUTO_PUBLISH_DELAY_MS`、デバウンスで連続編集は 1 回に集約)。
+    (b) はデータ画面のチェックボックス(`oneboard.sync.v1` の `autoPublish`)でいつでも止められる。
+    どちらも `localhost` + `http`(= server.py 経由)のときだけ。スマホ版(GitHub Pages)・
+    `file://` では発生しない。失敗時はヘッダーに「自動反映できず…」と出し、「ファイルに書き出し」で手動 push 可。
+  - 例外4(捕捉インボックスの受け渡し・ユーザー承認済み・外部送信なし): スマホの「あとで入力」メモ
+    (`oneboard.inbox.v1`)を PC へ渡すとき、パスフレーズで暗号化して **ローカルのファイル
+    ダウンロード**(`oneboard-inbox.enc.json`)または **クリップボードへコピー**
+    (`navigator.clipboard.writeText`)する。どちらも端末内で完結し、ネットワーク送信はしない。
+    PC 側はそのファイル/テキストを「データ」画面で取り込む(復号 → `oneboard.inbox.v1` に追記)。
   - 例外2(ユーザー承認済み): 外部サイトへのディープリンク。日別モーダルのリンクを
     **ユーザーが押したときだけ**、必要最小限の項目を URL に載せて新規タブで開く。
     `fetch` は使わずページ遷移のみ。押さない限り送信は発生しない。
@@ -127,13 +138,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     `git` は `_git_lock` で直列化。push 拒否時は `pull --rebase` して 1 回再試行。
   - 「ファイルに書き出し」(ダウンロード)は手動 push 用 / バックアップ用として残す。
   - `git` の認証は既存の Git Credential Manager をそのまま利用(新しいトークン不要)。
+- **フェーズ2b・自動反映(実装済み・既定オン): 保存するたびに自動でスマホへ**
+  - 方式B の上に載せたデバウンス。予定・設定を変更(追加/編集/削除/この日だけ削除/
+    捕捉メモの取り込み)すると `AUTO_PUBLISH_DELAY_MS`(5 秒)後に自動で `sendPublish()`
+    = `/__publish`。連続編集はまとめて 1 回。反映中に更なる変更があれば終了後にもう一度。
+  - オン/オフはデータ画面のチェックボックス(`oneboard.sync.v1.autoPublish`、既定 `true`)。
+    有効条件は `autoPublishEnabled()` = `CAN_PUBLISH` かつ `autoPublish !== false` かつ
+    パスフレーズ設定済み。
+  - PC のヘッダー `#data-freshness` に状態表示:「未反映の変更あり」/「スマホに反映中…」/
+    「スマホに反映済み M/D H:M」/「自動反映できず(理由)」。
+  - 手動「スマホに反映」ボタンは残す(即時反映したいとき / 自動オフのとき)。
+  - 小さな窓: 変更直後(デバウンス満了前)にタブを閉じると、その 1 回は飛ばない。
+    次に何か編集するか、手動ボタンで反映される。
+- **フェーズ2b・捕捉インボックス(実装済み・A3 の手動受け渡し版)**
+  - スマホ: ヘッダーの 📋 →「あとで入力」モーダルでメモを追加(`oneboard.inbox.v1`、
+    `[{id,text,createdAt}]`)。**カレンダーには登録しない**。件数はヘッダーのバッジに出る。
+  - スマホ →(手動)→ PC: 「PC へ渡す」でパスフレーズ暗号化 → `oneboard-inbox.enc.json`
+    ダウンロード or 「テキストをコピー」(→ 設計制約の例外4。ネットワーク送信なし)。
+  - PC: データ画面の「ファイルから取り込み」/「テキストを貼り付け」が `oneboard-export` と
+    `oneboard-inbox` を種類判定。`oneboard-inbox` は `oneboard.inbox.v1` に追記(id で重複排除)。
+  - PC で気づく仕組み: 未処理メモがあると起動時に「あとで入力」モーダルを自動で開く +
+    ヘッダー 📋 バッジ。各メモは「予定にする」(フォームにタイトル流し込み → 保存で消える)
+    または「完了」で片付ける。
+  - 掃除の自動化: PC が取り込んだ id を `oneboard.inboxack.v1`(直近 200 件)に控え、配信データの
+    `inboxAck` に載せる。スマホは次回取得時、その id を持つメモを自動で消す(`InboxStore.dropByIds`)。
 - **フェーズ2b・残り(未実装 — 次回の候補)**
-  1. **保存するたびの自動反映**: 方式B の上に載せる。予定を保存したら数秒後に自動で
-     `/__publish`(デバウンス)。PC で編集 → 何もしなくてもスマホが最新(オンライン時)。
-  2. **捕捉インボックス(A3)**: スマホで「後で PC で入力」メモを端末内に記録
-     (`oneboard.inbox.v1`。カレンダー未登録)。方式A では取り込みファイルに同梱、
-     将来は暗号化 `inbox.json` を PC が自動で拾う(スマホに絞ったトークンが1つ必要)。
-  3. **方式C**(GitHub API 直叩き): server.py を使わない配信。方式B で困ったときの代替。
+  - **方式C**(GitHub API 直叩き): server.py を使わない配信。方式B で困ったときの代替。
+    スマホ限定トークンがあれば捕捉インボックスの PC 取り込みも自動化できる(現状は手動受け渡し)。
   - 設計整理は artifact「OneBoard データ配信設計」。既存の `oneboard.events.v1` 構造は不変。
 - **将来フェーズ(構想・未着手)**
   - タスク管理機能。重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)
@@ -148,6 +179,7 @@ OneBoard-app-dev/
 ├── style.css            # スタイル
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
+│                         #   + 配信(SyncPrefs / 自動反映)・捕捉インボックス(InboxStore / InboxAck)
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
@@ -207,17 +239,30 @@ OneBoard-app-dev/
 // 同期設定: localStorage キー "oneboard.sync.v1" … app.js の SyncPrefs
 //   { passphrase,               // 暗号化パスフレーズ(この端末にだけ保存。外部送信なし)
 //     lastPulledAt,             // スマホが最後に取り込んだ時刻(ISO)
-//     lastPublishedAt }         // 取り込んだデータの publishedAt(= PC が書き出した時刻)
+//     lastPublishedAt,          // 取り込んだデータの publishedAt(= PC が書き出した時刻)
+//     autoPublish }             // PC: 保存のたびの自動反映。既定 true。データ画面で切替
+
+// 捕捉インボックス: localStorage キー "oneboard.inbox.v1" … app.js の InboxStore
+//   [ { id, text, createdAt, receivedAt? } ]   // receivedAt は PC が取り込んだ分だけ付く
+//   スマホ = 「あとで入力」メモ / PC = スマホから取り込んだ未処理メモ。カレンダーとは無関係。
+
+// インボックス受領記録(PC のみ): localStorage キー "oneboard.inboxack.v1" … string[](id、直近 200)
+//   PC が取り込んだメモの id。配信データの inboxAck に載せ、スマホが自動で消すのに使う。
 
 // 書き出しファイル data/oneboard.enc.json … crypto.js のエンベロープ(暗号文)
 //   { f:"oneboard-enc", v:1,
 //     kdf:{name:"PBKDF2",hash:"SHA-256",iter,salt(b64)}, cipher:"AES-GCM", iv(b64), ct(b64) }
-//   復号後のペイロード:
-//   { kind:"oneboard-export", version:1, publishedAt(ISO), events:Event[], settings:{homeStation} }
+//   復号後のペイロード(配信データ):
+//   { kind:"oneboard-export", version:1, publishedAt(ISO), events:Event[],
+//     settings:{homeStation}, inboxAck:string[] }   // inboxAck は後方互換の追加(無くても動く)
+
+// 捕捉インボックスの受け渡しファイル oneboard-inbox.enc.json … 同じエンベロープ形式
+//   復号後: { kind:"oneboard-inbox", version:1, exportedAt(ISO), items:[{id,text,createdAt}] }
 ```
 
 - 古い形式のデータは `EventStore.normalize()` が後方互換で補完する(実データを壊さない)。
 - 取り込み時は `EventStore.replaceAll()` / `Settings.replaceAll()` が全置換する(方式Aは一方向のため)。
+  捕捉インボックス(`oneboard-inbox`)だけは全置換ではなく `InboxStore.mergeIncoming()` で追記。
 - 繰り返しの展開は `eventOccurrences()` / `buildOccurrenceMap()` が担当。祝日判定は `Holidays.nameOf()`。
 
 ## 祝日データの更新手順(Claude Code 運用)
@@ -248,7 +293,7 @@ OneBoard-app-dev/
 
 `index.html` / `style.css` / `events.js` / `app.js` / `crypto.js` / アイコン / `holidays.json` を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v4`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v5`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
 2. コミット・push(GitHub Pages に反映)
 3. スマホ側は、次回オンラインで開いたときに新 SW が入り、その次の起動から新版になる
