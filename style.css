@@ -640,8 +640,10 @@ body.tasks-view #add-event-btn { display: none !important; }
 .task-item.is-inprogress .task-title,
 .task-item.is-inprogress .task-meta { color: var(--danger); }
 
-/* タスクの本文は長文メモになりがちなので、編集画面では大きめに(さらに縦ドラッグ可) */
-#task-body { min-height: 200px; line-height: 1.6; }
+/* タスクの本文は長文メモになりがち。編集画面では大きめに + 縦横どちらもドラッグで拡大可。
+   本文を右に広げられるよう、タスクのモーダルは通常より幅広で、はみ出したらスクロール。 */
+#task-modal .modal { max-width: 720px; overflow: auto; }
+#task-body { min-height: 200px; line-height: 1.6; resize: both; }
 
 /* 区分セクションの見出し(フェーズ3b)。#task-list の直下に <li> として並ぶ */
 .task-section-head {
@@ -662,4 +664,7 @@ body.tasks-view #add-event-btn { display: none !important; }
   .view-tabs { order: 2; }
   .task-item { padding: 10px 12px; } /* タップ領域を少し広げる */
   #task-add-btn { min-height: 44px; }
+  /* スマホは画面いっぱい表示。本文の横ドラッグは無効(縦のみ) */
+  #task-modal .modal { max-width: none; overflow: hidden; }
+  #task-body { resize: vertical; }
 }

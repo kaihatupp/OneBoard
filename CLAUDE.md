@@ -237,7 +237,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     **行全体をクリック/タップ(Enter・Space も可)で `#task-modal` が開き**、本文を含む全内容を
     確認・編集できる(3a の編集モーダルをそのまま流用。閲覧専用モーダルは作らない)。
     行内の「編集」ボタンは廃止。`#task-modal` の本文欄は長文メモ向けに大きめ
-    (`rows=14` + `#task-body { min-height:200px }`、縦ドラッグ可)。
+    (`rows=14` + `#task-body { min-height:200px; resize:both }`、縦横どちらもドラッグで拡大可)。
+    右に広げられるようタスクのモーダルだけ `max-width:720px` + `overflow:auto`。
+    スマホでは全幅表示 + 縦ドラッグのみ。
   - 稼働確認済み(2026-09-09): 各区分への振り分け(今日=水曜、月曜始まりの週境界 9/13・9/14・9/20、
     月末境界 9/30・10/1・10/31)、期限切れセクションの表示/非表示切替、0 件セクションの省略、
     全消し時の `#task-empty`、一覧が件名中心になること・行クリックで本文まで確認できることを実ブラウザで確認。
@@ -407,7 +409,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v9`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v10`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
