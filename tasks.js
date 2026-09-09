@@ -1,19 +1,23 @@
 'use strict';
 
 /* =========================================================================
- * OneBoard - タスク管理(フェーズ3a: 土台)
+ * OneBoard - タスク管理(フェーズ3a: 土台 / 3b: 区分表示)
  *
- * 現在 Outlook で行っているタスク管理を OneBoard へ段階的に移行する第一歩。
- * この段階では「別ビュー + データ構造 + 基本の CRUD」だけ。
- * 区分表示(3b) / 携帯同期(3c) / テンプレート(3d) / 一括移動(3f) /
- * カレンダー連携(3g) は今回含めない。
+ * 現在 Outlook で行っているタスク管理を OneBoard へ段階的に移行中。
+ *  - 3a: 別ビュー + データ構造(oneboard.tasks.v1)+ 基本の CRUD
+ *  - 3b: 一覧を区分ごとのセクション表示に(進行中 / 期限切れ / 今日 / 明日 /
+ *        今週 / 来週 / 今月 / 来月 / 後で)。区分は due から都度自動計算(保存しない)。
+ * 携帯同期(3c) / テンプレート(3d) / 一括移動・移動ルール(3f) /
+ * カレンダー連携(3g) はまだ含めない。
  *
  * 保存は localStorage キー "oneboard.tasks.v1" のみ。外部送信は一切しない
  * (カレンダー側の設計制約をそのまま踏襲。タスク追加で新たな外部通信は発生しない)。
  *
  * カレンダー(app.js / events.js)の内部には依存しない。共有するのは
- * app.js のモーダル基盤(openModal / closeModal。#task-modal は .modal-overlay かつ
- * [data-close] 付きなので、閉じる操作は app.js の bindModals() が面倒を見る)だけ。
+ *  - app.js のモーダル基盤(openModal / closeModal。#task-modal は .modal-overlay +
+ *    [data-close] なので閉じる操作は app.js の bindModals() が面倒を見る)
+ *  - events.js の日付ユーティリティ toYmd() / fromYmd()(区分の境界計算に流用)
+ * だけ。
  * ======================================================================= */
 
 const TASKS_KEY = 'oneboard.tasks.v1';
@@ -120,10 +124,69 @@ function sortTasks(list) {
 const TASK_WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
 function formatDue(ymd) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '');
-  if (!m) return ymd || '';
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd || '')) return ymd || '';
+  const d = fromYmd(ymd); // events.js の日付ユーティリティ
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}(${TASK_WEEKDAY_JA[d.getDay()]})`;
+}
+
+/* ---------- 区分(バケット)判定 ---------- *
+ * Outlook のバケット表示に近い区分。due の値から表示のたびに計算する
+ * (タスク自体には区分を保存しない)。週の始まりは月曜(タスク側だけの基準。
+ * カレンダーは日曜始まりのまま)。
+ */
+
+// 表示順。0 件のセクションは描画時に丸ごと省く。
+const TASK_SECTIONS = [
+  { key: 'inProgress', label: '進行中', cls: 'is-inprogress' }, // 常に最上段・赤字
+  { key: 'overdue', label: '期限切れ' },
+  { key: 'today', label: '今日' },
+  { key: 'tomorrow', label: '明日' },
+  { key: 'thisWeek', label: '今週' },
+  { key: 'nextWeek', label: '来週' },
+  { key: 'thisMonth', label: '今月' },
+  { key: 'nextMonth', label: '来月' },
+  { key: 'later', label: '後で' },
+];
+
+// きょうを起点に、区分の境界を "YYYY-MM-DD" 文字列で用意する。
+function computeTaskBoundaries(base) {
+  const now = base || new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // ローカル 0:00
+
+  const shift = (d, days) => {
+    const x = new Date(d);
+    x.setDate(x.getDate() + days);
+    return x;
+  };
+
+  const daysSinceMonday = (today.getDay() + 6) % 7; // 月曜=0 … 日曜=6
+  const thisMon = shift(today, -daysSinceMonday);
+
+  return {
+    today: toYmd(today),
+    tomorrow: toYmd(shift(today, 1)),
+    thisSun: toYmd(shift(thisMon, 6)),
+    nextMon: toYmd(shift(thisMon, 7)),
+    nextSun: toYmd(shift(thisMon, 13)),
+    thisMonthLast: toYmd(new Date(today.getFullYear(), today.getMonth() + 1, 0)),
+    nextMonthLast: toYmd(new Date(today.getFullYear(), today.getMonth() + 2, 0)),
+  };
+}
+
+// 1 件のタスクがどのセクションに入るか。b = computeTaskBoundaries()
+function bucketOf(task, b) {
+  if (task.inProgress === true) return 'inProgress';
+
+  const due = task.due;
+  if (!due) return 'later';
+  if (due < b.today) return 'overdue';
+  if (due === b.today) return 'today';
+  if (due === b.tomorrow) return 'tomorrow';
+  if (due <= b.thisSun) return 'thisWeek';                 // 明後日〜今週日曜
+  if (due >= b.nextMon && due <= b.nextSun) return 'nextWeek';
+  if (due <= b.thisMonthLast) return 'thisMonth';          // 来週より後・今月中
+  if (due <= b.nextMonthLast) return 'nextMonth';
+  return 'later';                                          // 来月より先
 }
 
 /* ---------- 起動 ---------- */
@@ -165,55 +228,77 @@ function switchView(view) {
   try { sessionStorage.setItem(TASK_VIEW_KEY, view); } catch (e) { /* 何もしない */ }
 }
 
-/* ---------- 一覧描画 ---------- */
+/* ---------- 一覧描画(区分セクション) ---------- */
 function renderTaskList() {
   const ul = document.getElementById('task-list');
   const empty = document.getElementById('task-empty');
   ul.innerHTML = '';
 
-  const tasks = sortTasks(TaskStore.all());
-  empty.hidden = tasks.length > 0;
+  // タスクを区分ごとに振り分け(区分は due から都度計算。タスクには保存しない)。
+  const b = computeTaskBoundaries();
+  const groups = {};
+  for (const s of TASK_SECTIONS) groups[s.key] = [];
+  for (const t of TaskStore.all()) groups[bucketOf(t, b)].push(t);
 
-  for (const t of tasks) {
-    const li = document.createElement('li');
-    li.className = 'task-item';
-    if (t.inProgress) li.classList.add('is-inprogress');
+  let total = 0;
+  for (const s of TASK_SECTIONS) {
+    const items = sortTasks(groups[s.key]); // セクション内は 期限日順 → 作成順
+    if (items.length === 0) continue;       // 0 件のセクションは丸ごと出さない
+    total += items.length;
 
-    const main = document.createElement('div');
-    main.className = 'task-main';
+    const head = document.createElement('li');
+    head.className = 'task-section-head';
+    if (s.cls) head.classList.add(s.cls);
+    head.setAttribute('role', 'presentation');
+    head.textContent = `${s.label}（${items.length}）`;
+    ul.appendChild(head);
 
-    const title = document.createElement('div');
-    title.className = 'task-title';
-    title.textContent = t.title || '(件名なし)';
-    main.appendChild(title);
-
-    const bits = [];
-    if (t.inProgress) bits.push('進行中');
-    if (t.due) bits.push('期限 ' + formatDue(t.due));
-    if (bits.length) {
-      const meta = document.createElement('div');
-      meta.className = 'task-meta';
-      meta.textContent = bits.join(' ・ ');
-      main.appendChild(meta);
-    }
-
-    if (t.body) {
-      const body = document.createElement('div');
-      body.className = 'task-body';
-      body.textContent = t.body;
-      main.appendChild(body);
-    }
-    li.appendChild(main);
-
-    const edit = document.createElement('button');
-    edit.type = 'button';
-    edit.className = 'ghost small';
-    edit.textContent = '編集';
-    edit.addEventListener('click', () => openTaskModal(t));
-    li.appendChild(edit);
-
-    ul.appendChild(li);
+    for (const t of items) ul.appendChild(buildTaskRow(t));
   }
+
+  empty.hidden = total > 0;
+}
+
+// タスク 1 行(3a の一覧行のデザインを踏襲)。
+function buildTaskRow(t) {
+  const li = document.createElement('li');
+  li.className = 'task-item';
+  if (t.inProgress) li.classList.add('is-inprogress');
+
+  const main = document.createElement('div');
+  main.className = 'task-main';
+
+  const title = document.createElement('div');
+  title.className = 'task-title';
+  title.textContent = t.title || '(件名なし)';
+  main.appendChild(title);
+
+  const bits = [];
+  if (t.inProgress) bits.push('進行中');
+  if (t.due) bits.push('期限 ' + formatDue(t.due));
+  if (bits.length) {
+    const meta = document.createElement('div');
+    meta.className = 'task-meta';
+    meta.textContent = bits.join(' ・ ');
+    main.appendChild(meta);
+  }
+
+  if (t.body) {
+    const body = document.createElement('div');
+    body.className = 'task-body';
+    body.textContent = t.body;
+    main.appendChild(body);
+  }
+  li.appendChild(main);
+
+  const edit = document.createElement('button');
+  edit.type = 'button';
+  edit.className = 'ghost small';
+  edit.textContent = '編集';
+  edit.addEventListener('click', () => openTaskModal(t));
+  li.appendChild(edit);
+
+  return li;
 }
 
 /* ---------- タスクフォーム ---------- */
