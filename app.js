@@ -18,6 +18,15 @@ const CAN_PUBLISH = !IS_VIEWER && location.protocol.startsWith('http');
 // 配信データファイル(暗号化済み)。PC が書き出し → data/ に置いて push → スマホが取得。
 const PUBLISHED_DATA_URL = 'data/oneboard.enc.json';
 
+// 自動反映(方式B の上に載せる): 予定・設定を変えたらこの時間だけ待って /__publish。
+// 連続編集はまとめて 1 回に畳む。
+const AUTO_PUBLISH_DELAY_MS = 5000;
+
+// 捕捉インボックス: スマホで「後で PC で入力」メモを貯め、PC が取り込む。
+const INBOX_PAYLOAD_KIND = 'oneboard-inbox';
+const INBOX_PAYLOAD_VERSION = 1;
+const INBOX_ACK_MAX = 200; // PC が「受け取り済み」と覚えておく id の上限(スマホ側の自動消去用)
+
 const state = {
   viewYear: 0,
   viewMonth: 0, // 0-11
@@ -29,7 +38,10 @@ const state = {
 // パスフレーズは PC・スマホの各ブラウザにだけ保存する(サーバーには送らない)。
 const SyncPrefs = (() => {
   const KEY = 'oneboard.sync.v1';
-  let data = { passphrase: '', lastPulledAt: null, lastPublishedAt: null };
+  let data = {
+    passphrase: '', lastPulledAt: null, lastPublishedAt: null,
+    autoPublish: true, // PC: 予定を変えたら自動で「スマホに反映」(既定オン。データ画面で停止可)
+  };
 
   function load() {
     try {
@@ -53,6 +65,121 @@ const SyncPrefs = (() => {
   }
 
   return { load, get, set };
+})();
+
+/* ---------- 捕捉インボックス(localStorage) ---------- */
+// スマホ: 「後で PC で入力」メモをこの端末に貯める(カレンダーには登録しない)。
+// PC:   スマホから取り込んだメモをここに置き、予定化 or 完了で消す。
+// 中身は端末内のみ。PC へ渡すときだけパスフレーズで暗号化してファイル/コピー。
+const InboxStore = (() => {
+  const KEY = 'oneboard.inbox.v1';
+  let items = [];
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      items = Array.isArray(parsed)
+        ? parsed.filter((x) => x && typeof x.id === 'string' && typeof x.text === 'string')
+        : [];
+    } catch (e) {
+      console.warn('[OneBoard] インボックスの読み込みに失敗しました', e);
+      items = [];
+    }
+    return items;
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(items));
+    } catch (e) {
+      console.error('[OneBoard] インボックスの保存に失敗しました', e);
+    }
+  }
+
+  const all = () => items.slice();
+  const count = () => items.length;
+
+  function add(text) {
+    const t = (text || '').trim();
+    if (!t) return null;
+    const item = { id: oneboardUid(), text: t, createdAt: new Date().toISOString() };
+    items.unshift(item);
+    persist();
+    return item;
+  }
+
+  function remove(id) {
+    const before = items.length;
+    items = items.filter((x) => x.id !== id);
+    if (items.length !== before) persist();
+  }
+
+  /** PC: スマホから受け取ったメモを id で重複排除して取り込む。追加件数を返す。 */
+  function mergeIncoming(list) {
+    let added = 0;
+    for (const raw of Array.isArray(list) ? list : []) {
+      if (!raw || typeof raw.id !== 'string' || typeof raw.text !== 'string') continue;
+      if (items.some((x) => x.id === raw.id)) continue;
+      items.push({
+        id: raw.id,
+        text: raw.text.trim(),
+        createdAt: raw.createdAt || new Date().toISOString(),
+        receivedAt: new Date().toISOString(),
+      });
+      added += 1;
+    }
+    if (added) {
+      items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      persist();
+    }
+    return added;
+  }
+
+  /** スマホ: PC が受け取り済みの id を配信データから受け取ったら、その分を消す。 */
+  function dropByIds(ids) {
+    const set = new Set(Array.isArray(ids) ? ids : []);
+    const before = items.length;
+    items = items.filter((x) => !set.has(x.id));
+    if (items.length !== before) persist();
+    return before - items.length;
+  }
+
+  return { load, all, count, add, remove, mergeIncoming, dropByIds };
+})();
+
+/* ---------- インボックス受領記録(PC のみ) ---------- */
+// PC が取り込んだメモの id を控えておき、次の配信データに載せる。
+// スマホはそれを見て「PC に届いた」メモを自動で消す(手動掃除の手間を省く)。
+const InboxAck = (() => {
+  const KEY = 'oneboard.inboxack.v1';
+  let ids = [];
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      ids = Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+    } catch (e) {
+      ids = [];
+    }
+    return ids;
+  }
+
+  function add(newIds) {
+    for (const id of Array.isArray(newIds) ? newIds : []) {
+      if (typeof id === 'string' && !ids.includes(id)) ids.push(id);
+    }
+    if (ids.length > INBOX_ACK_MAX) ids = ids.slice(ids.length - INBOX_ACK_MAX);
+    try {
+      localStorage.setItem(KEY, JSON.stringify(ids));
+    } catch (e) {
+      console.error('[OneBoard] インボックス受領記録の保存に失敗しました', e);
+    }
+  }
+
+  const list = () => ids.slice();
+  return { load, add, list };
 })();
 
 /* ---------- 起動 ---------- */
@@ -82,6 +209,8 @@ async function init() {
 
   Settings.load();
   SyncPrefs.load();
+  InboxStore.load();
+  if (!IS_VIEWER) InboxAck.load();
   EventStore.load();
   await Holidays.load();
 
@@ -91,12 +220,17 @@ async function init() {
   bindModals();
   bindEventForm();
   bindDataModal();
+  bindInboxModal();
   render();
   updateFreshness();
+  updateInboxIndicator();
   startServerHeartbeat();
 
   // スマホ版は起動時に配信データを取りに行く(取れなければ前回分のまま)。
   if (IS_VIEWER) await pullPublishedData();
+
+  // PC: 未処理の捕捉メモがあれば、開いた時に気づけるよう一覧を出す。
+  if (!IS_VIEWER && InboxStore.count() > 0) openInboxModal();
 }
 
 /* ---------- ローカルサーバーへの死活通知 ---------- */
@@ -133,6 +267,12 @@ function startServerHeartbeat() {
 const DATA_PAYLOAD_KIND = 'oneboard-export';
 const DATA_PAYLOAD_VERSION = 1;
 
+/* 自動反映の状態(手動「スマホに反映」とも共有) */
+let autoPublishTimer = null;   // デバウンス用
+let publishInFlight = false;   // 反映中(手動/自動とも)
+let publishDirty = false;      // 反映中にさらに変更があった / 反映待ちの変更がある
+let autoPublishError = null;   // 直近の反映の失敗理由(ヘッダー表示用)
+
 function bindDataModal() {
   const passEl = document.getElementById('sync-pass');
   passEl.value = SyncPrefs.get('passphrase') || '';
@@ -152,11 +292,37 @@ function bindDataModal() {
   document.getElementById('data-publish-hint').hidden = !CAN_PUBLISH;
   publishBtn.addEventListener('click', onPublish);
   document.getElementById('data-export-btn').addEventListener('click', onExportData);
+
+  // 自動反映のオン/オフ(PC のみ)
+  const autoRow = document.getElementById('data-auto-row');
+  const autoEl = document.getElementById('data-auto-publish');
+  autoRow.hidden = !CAN_PUBLISH;
+  autoEl.checked = SyncPrefs.get('autoPublish') !== false;
+  autoEl.addEventListener('change', () => {
+    SyncPrefs.set({ autoPublish: autoEl.checked });
+    if (autoEl.checked) {
+      scheduleAutoPublish(); // 溜まっていた変更をすぐ反映
+    } else {
+      if (autoPublishTimer) { clearTimeout(autoPublishTimer); autoPublishTimer = null; }
+      publishDirty = false; // 自動オフ中は「未反映」表示を持ち越さない
+    }
+    updateFreshness();
+  });
+
   document.getElementById('data-import').addEventListener('change', (e) => {
     const file = e.target.files && e.target.files[0];
     if (file) onImportData(file);
     e.target.value = ''; // 同じファイルを続けて選べるように
   });
+  const pasteBtn = document.getElementById('data-paste-btn');
+  if (pasteBtn) {
+    pasteBtn.addEventListener('click', () => {
+      const ta = document.getElementById('data-paste');
+      const text = (ta.value || '').trim();
+      if (!text) { setDataStatus('貼り付けたテキストがありません。', 'error'); return; }
+      importEnvelopeText(text).then(() => { ta.value = ''; });
+    });
+  }
 }
 
 function setDataStatus(msg, kind) {
@@ -174,7 +340,22 @@ function buildExportPayload() {
     publishedAt: new Date().toISOString(),
     events: EventStore.all(),
     settings: { homeStation: Settings.get('homeStation') },
+    // PC が取り込んだ捕捉メモの id。スマホはこれを見て届いた分を消す。
+    inboxAck: IS_VIEWER ? [] : InboxAck.list(),
   };
+}
+
+// テキストを .json ファイルとしてダウンロードさせる(実ブラウザでのみ動く)。
+function downloadText(text, filename) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function onExportData() {
@@ -186,15 +367,7 @@ async function onExportData() {
   SyncPrefs.set({ passphrase: pass });
   try {
     const envelope = await obEncrypt(buildExportPayload(), pass);
-    const blob = new Blob([envelope], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'oneboard.enc.json';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadText(envelope, 'oneboard.enc.json');
     setDataStatus('書き出しました。data/oneboard.enc.json として置いて git push してください。', 'ok');
   } catch (e) {
     console.error('[OneBoard] 書き出しに失敗', e);
@@ -202,7 +375,20 @@ async function onExportData() {
   }
 }
 
-// 方式B: 暗号化 → server.py の /__publish へ POST(server.py が commit + push する)。
+/* ---------- 方式B: server.py の /__publish へ配信 ---------- */
+
+// 暗号化 → POST /__publish。server.py の応答オブジェクトを返す(throw はしない)。
+async function sendPublish(passphrase) {
+  const envelope = await obEncrypt(buildExportPayload(), passphrase);
+  const res = await fetch('/__publish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: envelope,
+  });
+  return res.json().catch(() => ({ ok: false, message: '応答を解釈できませんでした' }));
+}
+
+// 「スマホに反映」ボタン(手動)。
 async function onPublish() {
   const pass = (document.getElementById('sync-pass').value || '').trim();
   if (!pass) {
@@ -210,17 +396,16 @@ async function onPublish() {
     return;
   }
   SyncPrefs.set({ passphrase: pass });
+  if (autoPublishTimer) { clearTimeout(autoPublishTimer); autoPublishTimer = null; }
   const btn = document.getElementById('data-publish-btn');
   btn.disabled = true;
+  publishInFlight = true;
+  publishDirty = false;
+  autoPublishError = null;
   setDataStatus('スマホに反映中…');
+  updateFreshness();
   try {
-    const envelope = await obEncrypt(buildExportPayload(), pass);
-    const res = await fetch('/__publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: envelope,
-    });
-    const r = await res.json().catch(() => ({ ok: false, message: '応答を解釈できませんでした' }));
+    const r = await sendPublish(pass);
     if (r.ok) {
       SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString() });
       const when = r.at ? fmtStamp(r.at) : fmtStamp(new Date().toISOString());
@@ -228,46 +413,136 @@ async function onPublish() {
         ? `${r.note || '変更なし'}(${when})`
         : `スマホに反映しました(${when})。`, 'ok');
     } else {
+      autoPublishError = r.message || '反映に失敗';
       setDataStatus(`反映に失敗(${r.stage || '?'}): ${r.message || ''}`
         + ' —「ファイルに書き出し」で手動 push もできます。', 'error');
     }
   } catch (e) {
+    autoPublishError = 'server.py 未接続';
     setDataStatus('server.py に接続できませんでした。OneBoard起動.bat から起動していますか?', 'error');
   } finally {
+    publishInFlight = false;
     btn.disabled = false;
+    updateFreshness();
+    if (publishDirty) scheduleAutoPublish();
+  }
+}
+
+/* ---------- 自動反映(方式B の上に載せる) ---------- */
+
+function autoPublishEnabled() {
+  return CAN_PUBLISH
+    && SyncPrefs.get('autoPublish') !== false
+    && !!SyncPrefs.get('passphrase');
+}
+
+// 予定・設定を変更したら呼ぶ。数秒後にまとめて 1 回だけ /__publish する。
+function scheduleAutoPublish() {
+  if (!autoPublishEnabled()) return;
+  publishDirty = true;
+  if (autoPublishTimer) clearTimeout(autoPublishTimer);
+  autoPublishTimer = setTimeout(runAutoPublish, AUTO_PUBLISH_DELAY_MS);
+  updateFreshness();
+}
+
+async function runAutoPublish() {
+  autoPublishTimer = null;
+  if (!autoPublishEnabled()) return;
+  if (publishInFlight) { publishDirty = true; return; }
+  publishInFlight = true;
+  publishDirty = false;
+  updateFreshness();
+  try {
+    const r = await sendPublish(SyncPrefs.get('passphrase'));
+    if (r && r.ok) {
+      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString() });
+      autoPublishError = null;
+    } else {
+      autoPublishError = (r && r.message) || '反映に失敗';
+    }
+  } catch (e) {
+    autoPublishError = 'server.py 未接続';
+  } finally {
+    publishInFlight = false;
+    updateFreshness();
+    // 反映中にさらに変更が入っていたら、もう一度だけ予約し直す。
+    if (publishDirty) scheduleAutoPublish();
   }
 }
 
 async function onImportData(file) {
-  const pass = (document.getElementById('sync-pass').value || '').trim();
+  let text;
+  try {
+    text = await file.text();
+  } catch (e) {
+    setDataStatus('ファイルを読めませんでした。', 'error');
+    return;
+  }
+  await importEnvelopeText(text);
+}
+
+// 暗号化テキスト(ファイル or 貼り付け)を復号し、種類に応じて取り込む。
+//  - oneboard-export: 予定・設定を全置換(要 confirm)
+//  - oneboard-inbox : スマホの捕捉メモを追記(重複は id で除外)
+async function importEnvelopeText(text) {
+  const pass = (document.getElementById('sync-pass').value || '').trim()
+    || SyncPrefs.get('passphrase');
   if (!pass) {
     setDataStatus('先にパスフレーズを入力してください。', 'error');
     return;
   }
+
   let payload;
   try {
-    payload = await obDecrypt(await file.text(), pass);
+    payload = await obDecrypt(text, pass);
   } catch (e) {
     setDataStatus(e.message, 'error');
     return;
   }
-  if (!payload || payload.kind !== DATA_PAYLOAD_KIND) {
-    setDataStatus('OneBoard の書き出しファイルではありません。', 'error');
+
+  if (payload && payload.kind === INBOX_PAYLOAD_KIND) {
+    // すでに受領済み(処理して消した分を含む)の id は取り込まない。
+    // → 同じファイル/テキストを二度取り込んでも復活しない。
+    const acked = new Set(InboxAck.list());
+    const incoming = (payload.items || []).filter((x) => x && typeof x.id === 'string');
+    const fresh = incoming.filter((x) => !acked.has(x.id));
+    const added = InboxStore.mergeIncoming(fresh);
+    InboxAck.add(incoming.map((x) => x.id));
+    updateInboxIndicator();
+    if (!document.getElementById('inbox-modal').hidden) renderInboxList();
+    setDataStatus(added > 0
+      ? `捕捉メモを ${added} 件取り込みました。「あとで入力」から予定にできます。`
+      : '捕捉メモに新しいものはありませんでした。', 'ok');
+    // 取り込んだ id を配信データに載せて、スマホ側の一覧から消えるようにする。
+    if (added > 0) scheduleAutoPublish();
     return;
   }
-  if (!window.confirm('取り込むと、この端末の予定と設定はすべて置き換わります。よろしいですか?')) {
+
+  if (payload && payload.kind === DATA_PAYLOAD_KIND) {
+    if (!window.confirm('取り込むと、この端末の予定と設定はすべて置き換わります。よろしいですか?')) {
+      return;
+    }
+    applyPayload(payload);
+    render();
+    updateFreshness();
+    setDataStatus(`取り込みました(予定 ${EventStore.all().length} 件)。`, 'ok');
     return;
   }
-  applyPayload(payload);
-  render();
-  updateFreshness();
-  setDataStatus(`取り込みました(予定 ${EventStore.all().length} 件)。`, 'ok');
+
+  setDataStatus('OneBoard の書き出しファイルではありません。', 'error');
 }
 
 // 復号済みペイロードを localStorage に反映する。
 function applyPayload(payload) {
   EventStore.replaceAll(Array.isArray(payload.events) ? payload.events : []);
   Settings.replaceAll(payload.settings || {});
+  // スマホ: PC が受け取り済みの捕捉メモを一覧から消す。
+  if (IS_VIEWER && Array.isArray(payload.inboxAck) && payload.inboxAck.length) {
+    if (InboxStore.dropByIds(payload.inboxAck) > 0) {
+      updateInboxIndicator();
+      if (!document.getElementById('inbox-modal').hidden) renderInboxList();
+    }
+  }
   SyncPrefs.set({
     lastPulledAt: new Date().toISOString(),
     lastPublishedAt: payload.publishedAt || null,
@@ -318,23 +593,223 @@ async function pullPublishedData() {
 
 function updateFreshness() {
   const el = document.getElementById('data-freshness');
-  if (!IS_VIEWER) { el.hidden = true; return; }
+  el.classList.remove('is-stale');
 
-  const pubIso = SyncPrefs.get('lastPublishedAt');
-  const pulledIso = SyncPrefs.get('lastPulledAt');
-  if (!pubIso && !pulledIso) {
-    el.textContent = '未取得';
-  } else {
-    const stamp = fmtStamp(pubIso || pulledIso);
-    el.textContent = navigator.onLine ? `最終更新 ${stamp}` : `オフライン・最終更新 ${stamp}`;
+  if (IS_VIEWER) {
+    const pubIso = SyncPrefs.get('lastPublishedAt');
+    const pulledIso = SyncPrefs.get('lastPulledAt');
+    if (!pubIso && !pulledIso) {
+      el.textContent = '未取得';
+    } else {
+      const stamp = fmtStamp(pubIso || pulledIso);
+      el.textContent = navigator.onLine ? `最終更新 ${stamp}` : `オフライン・最終更新 ${stamp}`;
+    }
+    el.hidden = false;
+    return;
   }
-  el.hidden = false;
+
+  // PC: 自動反映の状態を出す(反映できる環境のときだけ)。
+  if (!CAN_PUBLISH) { el.hidden = true; return; }
+
+  if (publishInFlight) {
+    el.textContent = 'スマホに反映中…';
+    el.hidden = false;
+    return;
+  }
+  if (autoPublishTimer || publishDirty) {
+    el.textContent = '未反映の変更あり';
+    el.classList.add('is-stale');
+    el.hidden = false;
+    return;
+  }
+  if (autoPublishError) {
+    el.textContent = `自動反映できず(${autoPublishError})`;
+    el.classList.add('is-stale');
+    el.hidden = false;
+    return;
+  }
+  const pubIso = SyncPrefs.get('lastPublishedAt');
+  if (pubIso) {
+    el.textContent = `スマホに反映済み ${fmtStamp(pubIso)}`;
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
 }
 
 function fmtStamp(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '不明';
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/* =========================================================================
+ * 捕捉インボックス(フェーズ2b・A3)
+ *
+ * スマホ: 「後で PC で入力」メモを端末内に貯める(カレンダーには登録しない)。
+ *         「PC へ渡す」で暗号化ファイル/コピー → PC が取り込む。
+ * PC:     取り込んだメモを一覧。「予定にする」でフォームに流し込み、
+ *         保存 or 完了で消す。取り込んだ id は次の配信データに載せ、
+ *         スマホ側の一覧からも自動で消えるようにする。
+ * ======================================================================= */
+
+let pendingInboxId = null; // 「予定にする」で開いたフォームの元メモ id
+
+function bindInboxModal() {
+  document.getElementById('inbox-btn').addEventListener('click', openInboxModal);
+
+  const addRow = document.getElementById('inbox-add-row');
+  const handoffRow = document.getElementById('inbox-handoff-row');
+  addRow.hidden = !IS_VIEWER;
+  handoffRow.hidden = !IS_VIEWER;
+
+  if (IS_VIEWER) {
+    document.getElementById('inbox-add-btn').addEventListener('click', () => {
+      const el = document.getElementById('inbox-text');
+      const item = InboxStore.add(el.value);
+      if (!item) { setInboxStatus('メモを入力してください。', 'error'); return; }
+      el.value = '';
+      renderInboxList();
+      updateInboxIndicator();
+      setInboxStatus('追加しました。', 'ok');
+    });
+    document.getElementById('inbox-export-btn').addEventListener('click', onInboxExport);
+    document.getElementById('inbox-copy-btn').addEventListener('click', onInboxCopy);
+  }
+}
+
+function setInboxStatus(msg, kind) {
+  const el = document.getElementById('inbox-status');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+  el.classList.toggle('is-error', kind === 'error');
+  el.classList.toggle('is-ok', kind === 'ok');
+}
+
+function openInboxModal() {
+  renderInboxList();
+  setInboxStatus('');
+  openModal('inbox-modal');
+}
+
+function renderInboxList() {
+  const ul = document.getElementById('inbox-list');
+  const empty = document.getElementById('inbox-empty');
+  ul.innerHTML = '';
+  const items = InboxStore.all();
+  empty.hidden = items.length > 0;
+  document.getElementById('inbox-handoff-row').hidden = !IS_VIEWER || items.length === 0;
+
+  for (const item of items) {
+    const li = document.createElement('li');
+    li.className = 'day-event inbox-item';
+
+    const main = document.createElement('div');
+    main.className = 'day-event-main';
+    const t = document.createElement('div');
+    t.className = 'day-event-note';
+    t.textContent = item.text;
+    main.appendChild(t);
+    const meta = document.createElement('div');
+    meta.className = 'day-event-meta';
+    meta.textContent = fmtStamp(item.createdAt) + (item.receivedAt ? ' ・ スマホから' : '');
+    main.appendChild(meta);
+    li.appendChild(main);
+
+    const actions = document.createElement('div');
+    actions.className = 'inbox-item-actions';
+    if (!IS_VIEWER) {
+      const mk = document.createElement('button');
+      mk.type = 'button';
+      mk.className = 'ghost small';
+      mk.textContent = '予定にする';
+      mk.addEventListener('click', () => {
+        closeModal('inbox-modal');
+        openEventModalFromInbox(item);
+      });
+      actions.appendChild(mk);
+    }
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'ghost small';
+    del.textContent = IS_VIEWER ? '削除' : '完了';
+    del.addEventListener('click', () => {
+      InboxStore.remove(item.id);
+      renderInboxList();
+      updateInboxIndicator();
+    });
+    actions.appendChild(del);
+    li.appendChild(actions);
+
+    ul.appendChild(li);
+  }
+}
+
+// ヘッダーの 📋 ボタン: スマホは常時表示、PC は未処理があるときだけ。件数バッジ付き。
+function updateInboxIndicator() {
+  const btn = document.getElementById('inbox-btn');
+  const n = InboxStore.count();
+  btn.hidden = IS_VIEWER ? false : n === 0;
+  btn.dataset.count = n > 0 ? String(n) : '';
+  btn.classList.toggle('has-items', n > 0);
+  btn.title = IS_VIEWER
+    ? 'あとで入力するメモ'
+    : (n > 0 ? `未処理の捕捉メモ ${n} 件` : '捕捉メモ');
+}
+
+function buildInboxPayload() {
+  return {
+    kind: INBOX_PAYLOAD_KIND,
+    version: INBOX_PAYLOAD_VERSION,
+    exportedAt: new Date().toISOString(),
+    items: InboxStore.all().map((x) => ({ id: x.id, text: x.text, createdAt: x.createdAt })),
+  };
+}
+
+async function encryptInboxOrWarn() {
+  const pass = SyncPrefs.get('passphrase');
+  if (!pass) {
+    setInboxStatus('先に「データ」画面でパスフレーズを設定してください。', 'error');
+    return null;
+  }
+  if (InboxStore.count() === 0) {
+    setInboxStatus('メモがありません。', 'error');
+    return null;
+  }
+  try {
+    return await obEncrypt(buildInboxPayload(), pass);
+  } catch (e) {
+    setInboxStatus('暗号化に失敗しました: ' + e.message, 'error');
+    return null;
+  }
+}
+
+async function onInboxExport() {
+  const envelope = await encryptInboxOrWarn();
+  if (!envelope) return;
+  downloadText(envelope, 'oneboard-inbox.enc.json');
+  setInboxStatus('書き出しました。PC に移して「データ」画面から取り込んでください。', 'ok');
+}
+
+async function onInboxCopy() {
+  const envelope = await encryptInboxOrWarn();
+  if (!envelope) return;
+  try {
+    await navigator.clipboard.writeText(envelope);
+    setInboxStatus('コピーしました。PC の「データ」画面に貼り付けて取り込んでください。', 'ok');
+  } catch (e) {
+    setInboxStatus('コピーできませんでした。「書き出し」を使ってください。', 'error');
+  }
+}
+
+// PC: 捕捉メモを予定フォームに流し込む。保存できたら onSubmitEvent 側でメモを消す。
+function openEventModalFromInbox(item) {
+  openEventModal(null, toYmd(new Date()));
+  pendingInboxId = item.id;
+  const oneLine = item.text.replace(/\s+/g, ' ').trim();
+  document.getElementById('ev-title').value = oneLine.slice(0, 100);
+  document.getElementById('ev-note').value = oneLine.length > 100 ? item.text : '';
+  document.getElementById('ev-title').focus();
 }
 
 /* ---------- 祝日バナー ---------- */
@@ -761,12 +1236,14 @@ function bindEventForm() {
     closeModal('delete-modal');
     closeModal('event-modal');
     render();
+    scheduleAutoPublish();
   });
   document.getElementById('delete-all-btn').addEventListener('click', () => {
     EventStore.remove(editingId);
     closeModal('delete-modal');
     closeModal('event-modal');
     render();
+    scheduleAutoPublish();
   });
 }
 
@@ -785,6 +1262,7 @@ function syncFormVisibility() {
 function openEventModal(ev, ymd) {
   if (IS_VIEWER) return; // 閲覧専用では編集フォームを開かない
 
+  pendingInboxId = null; // 通常の追加/編集。捕捉メモ由来なら呼び出し側が後でセットする。
   editingId = ev ? ev.id : null;
   editingOccYmd = ymd || (ev ? ev.date : toYmd(new Date()));
 
@@ -887,8 +1365,16 @@ function onSubmitEvent(e) {
     linkedTaskId: existing ? existing.linkedTaskId : null,
   });
 
+  // 捕捉メモから作った予定なら、保存できたのでそのメモを片付ける。
+  if (pendingInboxId) {
+    InboxStore.remove(pendingInboxId);
+    pendingInboxId = null;
+    updateInboxIndicator();
+  }
+
   closeModal('event-modal');
   render();
+  scheduleAutoPublish();
 }
 
 function sameRecurrence(a, b) {
@@ -909,6 +1395,7 @@ function onDeleteClick() {
       EventStore.remove(editingId);
       closeModal('event-modal');
       render();
+      scheduleAutoPublish();
     }
   }
 }

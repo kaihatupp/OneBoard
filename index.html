@@ -31,6 +31,7 @@
       <button type="button" id="today-btn" class="today-btn">今日</button>
     </div>
     <span id="data-freshness" class="data-freshness" hidden></span>
+    <button type="button" id="inbox-btn" class="icon-btn inbox-btn" aria-label="あとで入力" title="あとで入力するメモ" hidden>&#128203;</button>
     <button type="button" id="data-btn" class="icon-btn" aria-label="データ" title="データ(書き出し / 取り込み)">&#9881;</button>
     <button type="button" id="add-event-btn" class="primary">＋ 予定を追加</button>
   </header>
@@ -249,6 +250,10 @@
             予定を編集したら押してください。暗号化 → <code>data/oneboard.enc.json</code> 更新 →
             <code>git push</code> まで自動(OneBoard起動.bat で起動中のときのみ)。
           </p>
+          <label class="field checkbox" id="data-auto-row" hidden>
+            <input type="checkbox" id="data-auto-publish">
+            <span>予定を変更したら数秒後に自動でスマホに反映する</span>
+          </label>
           <button type="button" class="ghost small" id="data-export-btn">ファイルに書き出し(手動用 / バックアップ)</button>
           <p class="hint">
             自動反映を使わないときは、ダウンロードした <code>oneboard.enc.json</code> を
@@ -261,12 +266,59 @@
           <span>ファイルから取り込み</span>
           <input type="file" id="data-import" accept=".json,application/json">
         </div>
-        <p class="hint">取り込むと、この端末の予定と設定は<strong>すべて置き換わります</strong>。</p>
+        <details id="data-paste-details">
+          <summary class="hint">またはテキストを貼り付けて取り込み</summary>
+          <textarea id="data-paste" rows="3" spellcheck="false"
+                    placeholder="スマホでコピーした暗号化テキスト(書き出しデータ / 捕捉メモ どちらでも可)"></textarea>
+          <button type="button" class="ghost small" id="data-paste-btn">貼り付けを取り込み</button>
+        </details>
+        <p class="hint">取り込むと、この端末の予定と設定は<strong>すべて置き換わります</strong>(捕捉メモは追記)。</p>
 
         <p id="data-status" class="hint data-status" hidden></p>
       </div>
       <div class="modal-foot">
         <button type="button" class="ghost" data-close="data-modal">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 捕捉インボックス(あとで PC で入力するメモ) -->
+  <div class="modal-overlay" id="inbox-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="inbox-modal-title">
+      <div class="modal-head">
+        <h2 id="inbox-modal-title">あとで入力</h2>
+        <button type="button" class="modal-close" data-close="inbox-modal" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="inbox-add-row" hidden>
+          <label class="field">
+            <span>後で PC で入力するメモ</span>
+            <textarea id="inbox-text" rows="2" maxlength="500"
+                      placeholder="例: 27日の午後、歯医者の予約を入れる"></textarea>
+          </label>
+          <button type="button" class="primary" id="inbox-add-btn">追加</button>
+          <p class="hint">カレンダーには登録されません。PC で本入力するための覚え書きです。</p>
+          <hr class="data-sep">
+        </div>
+
+        <ul id="inbox-list" class="day-event-list"></ul>
+        <p id="inbox-empty" class="muted" hidden>メモはありません。</p>
+
+        <div id="inbox-handoff-row" hidden>
+          <hr class="data-sep">
+          <button type="button" class="primary" id="inbox-export-btn">PC へ渡す(書き出し)</button>
+          <button type="button" class="ghost small" id="inbox-copy-btn">テキストをコピー</button>
+          <p class="hint">
+            パスフレーズで暗号化します。<code>oneboard-inbox.enc.json</code> を PC に移すか、
+            コピーしたテキストを PC の「データ」画面に貼り付けて取り込みます。
+            PC が受け取ると、このメモは次回の取得時に自動で消えます。
+          </p>
+        </div>
+
+        <p id="inbox-status" class="hint data-status" hidden></p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" data-close="inbox-modal">閉じる</button>
       </div>
     </div>
   </div>
