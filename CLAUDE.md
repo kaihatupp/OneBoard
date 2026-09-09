@@ -183,6 +183,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     公開中の配信データから直接戻す。→ 設計制約の**例外5**(localhost → github.io の外部 fetch)。
   - GitHub CDN は最大 10 分キャッシュ。`?t=<時刻>` で取り違えを避ける。取得失敗時は
     エラー表示のみで既存データには触れない。
+  - 稼働確認済み(2026-09-09): localhost → github.io の `fetch`(CORS 通過)・取得データの復号・
+    `oneboard-export` 判定までを実ブラウザで確認(全置換は confirm 経由の既存経路)。
+    手順は下記「PC 復元手順(買い替え・故障時)」。
+- **フェーズ2b・残り(未実装 — 次回の候補)**
   - **方式C**(GitHub API 直叩き): server.py を使わない配信。方式B で困ったときの代替。
     スマホ限定トークンがあれば捕捉インボックスの PC 取り込みも自動化できる(現状は手動受け渡し)。
   - 設計整理は artifact「OneBoard データ配信設計」。既存の `oneboard.events.v1` 構造は不変。
@@ -308,6 +312,22 @@ OneBoard-app-dev/
   Pages ブランチ変更 + `git push -u origin main` が必要。
 - `gh` CLI は未インストール。GitHub 側の操作(リポジトリ作成・Pages 設定など)は
   マサさんのブラウザ(Chrome のログイン中セッション)経由で行う。
+
+## PC 復元手順(買い替え・故障時)
+
+手元にバックアップファイル(`oneboard.enc.json`)が無くても、GitHub 上の配信データから戻せる。
+
+1. 新しい PC にリポジトリ一式を配置(`git clone` かフォルダごとコピー)→ `OneBoard起動.bat` で起動。
+2. ⚙(データ)→ **パスフレーズを入力**(旧 PC・スマホと同じもの)。
+3. 取り込み欄の **「GitHub から復元」** を押す → 確認ダイアログで OK。
+   - 内部的には `https://kaihatupp.github.io/OneBoard/data/oneboard.enc.json` を取得し、
+     `importEnvelopeText()`(復号 → 全置換)に渡すだけ。
+4. 「取り込みました(予定 N 件)」で完了。以降は自動反映が通常どおり動く。
+
+- **パスフレーズだけは GitHub 上にも無い**。これが無いと復元できないので、マサさんが別途控えを保持すること
+  (Chrome のパスワード保存ではなく、手元のメモ / パスワード管理アプリ推奨)。
+- ローカルにバックアップがある場合は「ファイルから取り込み」でも同じ(全置換 + confirm)。
+- スマホしか無い状況では復元不可(スマホは閲覧専用で書き戻し機能なし)。PC が正本。
 
 ## SW キャッシュ更新手順
 
