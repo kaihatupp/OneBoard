@@ -15,14 +15,16 @@
  *   古いキャッシュは activate 時に削除される。
  * ======================================================================= */
 
-const CACHE = 'oneboard-v6';
+const CACHE = 'oneboard-v7';
 
 const ASSETS = [
   './',
   './index.html',
   './style.css',
+  './crypto.js',
   './events.js',
   './app.js',
+  './tasks.js',
   './holidays.json',
   './manifest.webmanifest',
   './icons/icon-192.png',

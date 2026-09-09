@@ -24,6 +24,10 @@
 
   <header class="app-header">
     <h1 class="app-title">OneBoard</h1>
+    <div class="view-tabs" role="tablist" aria-label="表示切り替え">
+      <button type="button" id="tab-calendar" class="view-tab is-active" role="tab" aria-selected="true">カレンダー</button>
+      <button type="button" id="tab-tasks" class="view-tab" role="tab" aria-selected="false">タスク</button>
+    </div>
     <div class="cal-nav">
       <button type="button" id="prev-month" aria-label="前の月">&#9664;</button>
       <button type="button" id="cur-month" class="cur-month">2026年9月</button>
@@ -37,8 +41,18 @@
   </header>
 
   <main>
-    <div class="weekday-row" id="weekday-row"></div>
-    <div class="calendar-grid" id="calendar-grid"></div>
+    <section id="view-calendar">
+      <div class="weekday-row" id="weekday-row"></div>
+      <div class="calendar-grid" id="calendar-grid"></div>
+    </section>
+
+    <section id="view-tasks" hidden>
+      <div class="tasks-head">
+        <button type="button" id="task-add-btn" class="primary">＋ タスクを追加</button>
+      </div>
+      <ul id="task-list" class="task-list"></ul>
+      <p id="task-empty" class="muted" hidden>タスクはありません。「＋ タスクを追加」から登録してください。</p>
+    </section>
   </main>
 
   <!-- 日別の予定一覧 -->
@@ -330,8 +344,50 @@
     </div>
   </div>
 
+  <!-- タスクの登録・編集(フェーズ3a) -->
+  <div class="modal-overlay" id="task-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
+      <div class="modal-head">
+        <h2 id="task-modal-title">タスクを追加</h2>
+        <button type="button" class="modal-close" data-close="task-modal" aria-label="閉じる">&times;</button>
+      </div>
+      <form id="task-form">
+        <div class="modal-body">
+          <label class="field">
+            <span>件名</span>
+            <input type="text" id="task-title" required maxlength="200" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span>期限日</span>
+            <input type="date" id="task-due">
+          </label>
+
+          <label class="field checkbox">
+            <input type="checkbox" id="task-inprogress">
+            <span>進行中</span>
+          </label>
+          <p class="hint">「進行中」の付いたタスクは一覧の上のほうに赤字で表示されます。</p>
+
+          <label class="field">
+            <span>本文</span>
+            <textarea id="task-body" rows="6" maxlength="5000"></textarea>
+          </label>
+        </div>
+        <div class="modal-foot spread">
+          <button type="button" class="danger" id="task-delete-btn" hidden>削除</button>
+          <div class="foot-right">
+            <button type="button" class="ghost" data-close="task-modal">キャンセル</button>
+            <button type="submit" class="primary">保存</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="crypto.js"></script>
   <script src="events.js"></script>
   <script src="app.js"></script>
+  <script src="tasks.js"></script>
 </body>
 </html>

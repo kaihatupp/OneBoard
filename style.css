@@ -571,3 +571,74 @@ main {
   .day-num { font-size: 12px; }
   .chip { line-height: 1.3; }
 }
+
+/* =========================================================================
+ * タスク管理(フェーズ3a)- カレンダーの見た目に合わせた追加スタイル
+ * ======================================================================= */
+
+/* ビュー切り替えタブ */
+.view-tabs { display: flex; gap: 4px; }
+.view-tab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.view-tab:hover { background: #eef1f5; }
+.view-tab.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
+}
+
+/* タスク表示中はカレンダー専用のヘッダー操作を隠す */
+body.tasks-view .cal-nav,
+body.tasks-view #add-event-btn { display: none !important; }
+
+/* タスク一覧 */
+.tasks-head { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.task-main { flex: 1; min-width: 0; }
+.task-title { font-weight: 700; font-size: 15px; word-break: break-word; }
+.task-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.task-item.is-inprogress .task-title,
+.task-item.is-inprogress .task-meta { color: var(--danger); }
+.task-body {
+  font-size: 13px;
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.task-item > button { flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  #task-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  .view-tabs { order: 2; }
+  .task-item > button { min-height: 36px; padding: 6px 12px; }
+  #task-add-btn { min-height: 44px; }
+}
