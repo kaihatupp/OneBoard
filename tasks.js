@@ -321,14 +321,34 @@ const TaskTemplateStore = (() => {
 })();
 
 /* ---------- 並び順 ---------- */
-// フェーズ3a では区分分け・並び替えルールは無し。
-// 「進行中」を先頭に寄せ、あとは期限日(未設定は末尾)→ 作成順。
+
+// 件名の先頭が「〇〇」(全角かぎ括弧)なら、その中身を「会社名」として返す。無ければ null。
+// 例: 「サンプル建設」入社手続き → "サンプル建設"
+function extractCompanyName(title) {
+  const m = /^「([^」]+)」/.exec(title || '');
+  return m ? m[1] : null;
+}
+
+// 「進行中」を先頭に寄せ、あとは 期限日昇順(未設定は末尾)。
+// 同じ期限日のグループ内だけ、件名先頭の「会社名」であいうえお順に並べる
+// (会社名なしはそのグループの最後にまとめる)。最後の同点処理は作成順。
 function sortTasks(list) {
   return list.slice().sort((a, b) => {
     if (a.inProgress !== b.inProgress) return a.inProgress ? -1 : 1;
+
     const ad = a.due || '9999-99-99';
     const bd = b.due || '9999-99-99';
     if (ad !== bd) return ad < bd ? -1 : 1;
+
+    // ここから下は「期限日が同じタスク同士」だけ
+    const ca = extractCompanyName(a.title);
+    const cb = extractCompanyName(b.title);
+    if (ca !== cb) {
+      if (ca === null) return 1;   // 会社名なしは後ろ
+      if (cb === null) return -1;
+      const c = ca.localeCompare(cb, 'ja');
+      if (c !== 0) return c;
+    }
     return (a.createdAt || '') < (b.createdAt || '') ? -1 : 1;
   });
 }
