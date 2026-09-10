@@ -296,11 +296,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     パターンの追加・編集(id/createdAt 保持)・削除(確認)、一覧の並び、
     プルダウンの中身、「本文にコピー」(空→そのままコピー / 非空→上書き確認)、
     選ぶだけでは本文不変、`templateName` の記録と復元、削除済み名の保持、スマホでの無効化。
+- **フェーズ3f(実装済み): 移動ルール + 一括移動ボタン**
+  - Outlook で手動でやっている「今日のタスクを翌日等へ動かす」作業をボタン1つに。
+  - `moveRule`(タスクのフィールド。`normalizeMoveRule()` で正規化):
+    - `nextDay` … 翌日へ
+    - `weekly` … `{ weekday: 0-6 }` 次のその曜日へ(同じ曜日なら翌週)
+    - `monthlyDay` … `{ day: 1-31 }` 翌月の指定日へ(その月に無ければ月末に丸め)
+    - `interval` … `{ days: 1-365 }` 指定日数後へ
+    - `holidayAdjust: 'forward' | 'backward'` … 土日祝に当たったときの調整方向。
+      既定は `defaultHolidayAdjust(type)` = monthlyDay は `backward`、その他は `forward`。
+      フォームでどの type でも手動で逆に変更可。
+  - `computeNextDue(currentDue, moveRule, isHoliday)`: type ごとに素の次回日を出し、土日
+    (`getDay()` 0/6)+ 祝日(既定は `Holidays.nameOf()`)なら `holidayAdjust` の向きへ 1 日ずつ動かす。
+  - タスクフォームに「移動ルール(一括移動用)」欄(既定「設定しない」)。type を選ぶと
+    対応するパラメータ欄(曜日 / 日 / 日数)と「土日祝に当たったら」欄が出て、既定の調整方向が入る。
+  - タスク画面「今日のタスクを移動」ボタン → 今日区分(`bucketOf` = `'today'` = 未完了・非進行中・
+    期限=今日)のタスクを集める。移動ルール未設定のものがあれば `#move-modal` で件名一覧 +
+    「今日のまま残ります」+「続行」。未設定が無ければそのまま実行。「続行」で**ルール設定済みのみ**
+    `computeNextDue()` で `due` を更新(1件ずつの確認なし)。完了後「N 件移動しました」。
+  - 未設定タスクは `due` を変えない(今日区分に残り続ける)。
+  - 一覧行の meta に移動ルールありの目印「⇢」(ホバーで説明)。
+  - **携帯同期は追加実装なし**(`moveRule` は `tasks[]` の 1 フィールドとして自然に配信・復元される)。
+  - `bucketOf()` / `sortTasks()` は変更なし。app.js も変更なし。
+  - 変更ファイル: `tasks.js` / `index.html` / `style.css` / `sw.js`(v13)。
+  - 稼働確認済み(2026-09-10、ヘッドレス Chrome で 40 チェック / 開発用プロファイルで統合ロード):
+    各 type の期限計算、土日祝の forward/backward 調整(例: 金曜 nextDay → 月曜 / 4/25 土曜の
+    monthlyDay+backward → 4/24 金曜 / 祝日を挟むケース)、monthlyDay の月末丸め、
+    フォームの出し分けと既定調整方向、保存・再オープンの往復、
+    一括移動(未設定タスクの警告 → 続行でルール済みのみ移動、完了/進行中/今日以外は不変、
+    全件ルールありなら直接実行、今日タスク 0 件のメッセージ、スマホでは無効)。
 - **フェーズ3・残り(未実装)**
-  - 3f: 一括移動ボタン・移動ルール(前倒し/後ろ倒しの判定ロジックもここで具体化)
-  - 3g: カレンダー連携表示
+  - 3g: カレンダー連携表示(重要タスクとカレンダーの連動。イベントの `linkedTaskId` を使う)
 - **将来フェーズ(構想・未着手)**
-  - 重要タスクとカレンダーの連動(イベントに `linkedTaskId` の空フィールドを予約済み)→ 3g で検討
   - 通知
 
 ## ファイル構成
@@ -313,7 +340,7 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 │                         #   + 配信(SyncPrefs / 自動反映)・捕捉インボックス(InboxStore / InboxAck)
-├── tasks.js             # タスク管理(3a: CRUD、3b: 区分、3c: 完了+同期、3d: 記載パターン)。app.js の後に読み込み
+├── tasks.js             # タスク管理(3a: CRUD、3b: 区分、3c: 完了+同期、3d: 記載パターン、3f: 移動ルール)。app.js の後
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
@@ -381,7 +408,10 @@ OneBoard-app-dev/
 //   inProgress,               // true/false。true なら一覧で件名・メタを赤字表示
 //   completed,                // true/false(既定 false)。true は区分判定の対象外 →「完了済み」へ
 //   completedAt,              // 完了日時(ISO)| null
-//   moveRule,                 // ★将来の一括移動(3f)用の予約フィールド。現状は常に null
+//   moveRule,                 // 3f: 一括移動ルール。null または:
+//                             //  { type:'nextDay'|'weekly'|'monthlyDay'|'interval',
+//                             //    weekday?:0-6, day?:1-31, days?:1-365,
+//                             //    holidayAdjust:'forward'|'backward' }
 //   templateName,             // 3d: タスク作成時に選んだ記載パターン名(自由記載なら null)
 //   body,                     // 本文(自由記述)
 //   createdAt, updatedAt
@@ -477,7 +507,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v12`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v13`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
