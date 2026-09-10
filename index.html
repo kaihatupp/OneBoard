@@ -48,6 +48,7 @@
 
     <section id="view-tasks" hidden>
       <div class="tasks-head">
+        <button type="button" id="template-manage-btn" class="ghost small">パターン管理</button>
         <button type="button" id="task-add-btn" class="primary">＋ タスクを追加</button>
       </div>
       <ul id="task-list" class="task-list"></ul>
@@ -369,6 +370,18 @@
           </label>
           <p class="hint">「進行中」の付いたタスクは一覧の上のほうに赤字で表示されます。</p>
 
+          <div class="field" id="task-template-row">
+            <span>パターン</span>
+            <div class="task-template-controls">
+              <select id="task-template"><option value="">(自由記載)</option></select>
+              <button type="button" class="ghost small" id="task-template-copy">本文にコピー</button>
+            </div>
+            <p class="hint">
+              登録済みの本文の雛形を選んで「本文にコピー」で本文欄に入れます(コピー後は自由に編集可)。
+              選ぶだけでは本文は変わりません。パターンは「パターン管理」で追加・編集できます。
+            </p>
+          </div>
+
           <label class="field">
             <span>本文</span>
             <textarea id="task-body" rows="14" maxlength="5000"></textarea>
@@ -382,6 +395,46 @@
           </div>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- 記載パターン(テンプレート)管理(フェーズ3d) -->
+  <div class="modal-overlay" id="template-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="template-modal-title">
+      <div class="modal-head">
+        <h2 id="template-modal-title">パターン管理</h2>
+        <button type="button" class="modal-close" data-close="template-modal" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="template-form">
+          <p class="field-group-title" id="template-form-title">新しいパターン</p>
+          <label class="field">
+            <span>パターン名</span>
+            <input type="text" id="template-name" maxlength="60" autocomplete="off"
+                   placeholder="例: 入社A / 退社A / 36協定A">
+          </label>
+          <label class="field">
+            <span>本文の雛形</span>
+            <textarea id="template-body" rows="8" maxlength="5000"
+                      placeholder="タスクの本文に流し込む雛形。日付など可変部分は使うときに手入力します。"></textarea>
+          </label>
+          <div class="modal-foot spread">
+            <button type="button" class="danger" id="template-delete-btn" hidden>削除</button>
+            <div class="foot-right">
+              <button type="button" class="ghost" id="template-new-btn">新規</button>
+              <button type="submit" class="primary">保存</button>
+            </div>
+          </div>
+        </form>
+
+        <hr class="data-sep">
+        <p class="hint">登録済みのパターン(クリックで上のフォームに読み込み)</p>
+        <ul id="template-list" class="day-event-list"></ul>
+        <p id="template-empty" class="muted" hidden>パターンはまだありません。上のフォームから追加してください。</p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" data-close="template-modal">閉じる</button>
+      </div>
     </div>
   </div>
 

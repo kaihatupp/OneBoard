@@ -15,7 +15,7 @@
  *   古いキャッシュは activate 時に削除される。
  * ======================================================================= */
 
-const CACHE = 'oneboard-v11';
+const CACHE = 'oneboard-v12';
 
 const ASSETS = [
   './',
