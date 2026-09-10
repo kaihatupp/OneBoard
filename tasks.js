@@ -1,23 +1,27 @@
 'use strict';
 
 /* =========================================================================
- * OneBoard - タスク管理(フェーズ3a: 土台 / 3b: 区分表示)
+ * OneBoard - タスク管理(フェーズ3a: 土台 / 3b: 区分表示 / 3c: 完了機能 + 携帯同期)
  *
  * 現在 Outlook で行っているタスク管理を OneBoard へ段階的に移行中。
  *  - 3a: 別ビュー + データ構造(oneboard.tasks.v1)+ 基本の CRUD
  *  - 3b: 一覧を区分ごとのセクション表示に(進行中 / 期限切れ / 今日 / 明日 /
  *        今週 / 来週 / 今月 / 来月 / 後で)。区分は due から都度自動計算(保存しない)。
- * 携帯同期(3c) / テンプレート(3d) / 一括移動・移動ルール(3f) /
- * カレンダー連携(3g) はまだ含めない。
+ *  - 3c: 完了機能(completed / completedAt。行チェックボックス、最下部に折りたたみの
+ *        「完了済み」セクション常設)+ 携帯同期(配信データに tasks を載せる。
+ *        スマホは閲覧専用)。
+ * テンプレート(3d) / 一括移動・移動ルール(3f) / カレンダー連携(3g) はまだ含めない。
  *
- * 保存は localStorage キー "oneboard.tasks.v1" のみ。外部送信は一切しない
- * (カレンダー側の設計制約をそのまま踏襲。タスク追加で新たな外部通信は発生しない)。
+ * 保存は localStorage キー "oneboard.tasks.v1" のみ。タスク自体が外部へ送られるのは
+ * 3c の配信データ経路だけ(app.js が buildExportPayload() に tasks を載せて暗号化 → publish。
+ * カレンダー予定とまったく同じ仕組み。→ 設計制約の例外1・3)。
  *
- * カレンダー(app.js / events.js)の内部には依存しない。共有するのは
- *  - app.js のモーダル基盤(openModal / closeModal。#task-modal は .modal-overlay +
- *    [data-close] なので閉じる操作は app.js の bindModals() が面倒を見る)
+ * カレンダー側との連携:
+ *  - app.js のモーダル基盤(openModal / closeModal / bindModals)
+ *  - app.js の同期(applyPayload が payload.tasks を TaskStore.replaceAll、
+ *    buildExportPayload が TaskStore.all() を読む、scheduleAutoPublish をタスク変更で呼ぶ)
+ *  - app.js の IS_VIEWER(スマホ=閲覧専用)
  *  - events.js の日付ユーティリティ toYmd() / fromYmd()(区分の境界計算に流用)
- * だけ。
  * ======================================================================= */
 
 const TASKS_KEY = 'oneboard.tasks.v1';
@@ -39,6 +43,8 @@ const TaskStore = (() => {
    *   title,          // 件名(自由記述)
    *   due,            // "YYYY-MM-DD" | null(期限日)
    *   inProgress,     // true/false。true なら一覧で赤字表示
+   *   completed,      // true/false(既定 false)。true は区分判定の対象外 → 「完了済み」へ
+   *   completedAt,    // 完了日時(ISO)| null
    *   moveRule,       // ★将来の一括移動用の予約フィールド(現状は常に null)
    *   templateName,   // ★将来のテンプレート用の予約フィールド(現状は常に null)
    *   body,           // 本文(自由記述)
@@ -48,11 +54,14 @@ const TaskStore = (() => {
   function normalize(t) {
     const now = new Date().toISOString();
     const src = t && typeof t === 'object' ? t : {};
+    const completed = src.completed === true;
     return {
       id: (typeof src.id === 'string' && src.id) ? src.id : taskUid(),
       title: (src.title || '').trim(),
       due: /^\d{4}-\d{2}-\d{2}$/.test(src.due) ? src.due : null,
       inProgress: src.inProgress === true,
+      completed,
+      completedAt: completed && typeof src.completedAt === 'string' ? src.completedAt : null,
       moveRule: src.moveRule ?? null,
       templateName: src.templateName ?? null,
       body: typeof src.body === 'string' ? src.body : '',
@@ -105,7 +114,25 @@ const TaskStore = (() => {
     if (tasks.length !== before) persist();
   }
 
-  return { load, all, get, upsert, remove };
+  // 完了チェックの ON/OFF。ON で completedAt を記録、OFF で null に戻す。
+  function setCompleted(id, value) {
+    const t = tasks.find((x) => x.id === id);
+    if (!t) return null;
+    t.completed = value === true;
+    t.completedAt = t.completed ? new Date().toISOString() : null;
+    t.updatedAt = new Date().toISOString();
+    persist();
+    return t;
+  }
+
+  // 同期用: 配信データ(または取り込みファイル)の tasks で全置換。
+  function replaceAll(list) {
+    tasks = Array.isArray(list) ? list.map(normalize) : [];
+    persist();
+    return tasks.length;
+  }
+
+  return { load, all, get, upsert, remove, setCompleted, replaceAll };
 })();
 
 /* ---------- 並び順 ---------- */
@@ -118,6 +145,16 @@ function sortTasks(list) {
     const bd = b.due || '9999-99-99';
     if (ad !== bd) return ad < bd ? -1 : 1;
     return (a.createdAt || '') < (b.createdAt || '') ? -1 : 1;
+  });
+}
+
+// 完了済みは「完了日時の新しい順」。
+function sortCompleted(list) {
+  return list.slice().sort((a, b) => {
+    const av = a.completedAt || a.updatedAt || '';
+    const bv = b.completedAt || b.updatedAt || '';
+    if (av !== bv) return av < bv ? 1 : -1;
+    return 0;
   });
 }
 
@@ -175,6 +212,7 @@ function computeTaskBoundaries(base) {
 
 // 1 件のタスクがどのセクションに入るか。b = computeTaskBoundaries()
 function bucketOf(task, b) {
+  if (task.completed === true) return 'completed'; // 通常の区分判定からは除外
   if (task.inProgress === true) return 'inProgress';
 
   const due = task.due;
@@ -228,7 +266,9 @@ function switchView(view) {
   try { sessionStorage.setItem(TASK_VIEW_KEY, view); } catch (e) { /* 何もしない */ }
 }
 
-/* ---------- 一覧描画(区分セクション) ---------- */
+/* ---------- 一覧描画(区分セクション + 完了済み) ---------- */
+let completedExpanded = false; // 「完了済み」セクションの開閉状態(既定: 折りたたみ)
+
 function renderTaskList() {
   const ul = document.getElementById('task-list');
   const empty = document.getElementById('task-empty');
@@ -236,15 +276,18 @@ function renderTaskList() {
 
   // タスクを区分ごとに振り分け(区分は due から都度計算。タスクには保存しない)。
   const b = computeTaskBoundaries();
-  const groups = {};
+  const groups = { completed: [] };
   for (const s of TASK_SECTIONS) groups[s.key] = [];
-  for (const t of TaskStore.all()) groups[bucketOf(t, b)].push(t);
+  for (const t of TaskStore.all()) {
+    const k = bucketOf(t, b);
+    (groups[k] || (groups[k] = [])).push(t);
+  }
 
-  let total = 0;
+  let activeCount = 0;
   for (const s of TASK_SECTIONS) {
     const items = sortTasks(groups[s.key]); // セクション内は 期限日順 → 作成順
     if (items.length === 0) continue;       // 0 件のセクションは丸ごと出さない
-    total += items.length;
+    activeCount += items.length;
 
     const head = document.createElement('li');
     head.className = 'task-section-head';
@@ -256,17 +299,63 @@ function renderTaskList() {
     for (const t of items) ul.appendChild(buildTaskRow(t));
   }
 
-  empty.hidden = total > 0;
+  // 「完了済み」セクションは常設(0 件でも見出しは出す。既定は折りたたみ)。
+  renderCompletedSection(ul, sortCompleted(groups.completed));
+
+  empty.hidden = (activeCount + groups.completed.length) > 0;
 }
 
-// タスク 1 行(3b-2: 件名中心のコンパクト行)。
+function renderCompletedSection(ul, items) {
+  const sep = document.createElement('li');
+  sep.className = 'task-list-sep';
+  sep.setAttribute('aria-hidden', 'true');
+  ul.appendChild(sep);
+
+  const head = document.createElement('li');
+  head.className = 'task-section-head completed-head';
+  head.setAttribute('role', 'button');
+  head.tabIndex = 0;
+  head.setAttribute('aria-expanded', String(completedExpanded));
+  head.textContent = `${completedExpanded ? '▾' : '▸'} 完了済み（${items.length}）`;
+  const toggle = () => { completedExpanded = !completedExpanded; renderTaskList(); };
+  head.addEventListener('click', toggle);
+  head.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+  });
+  ul.appendChild(head);
+
+  if (completedExpanded) {
+    for (const t of items) ul.appendChild(buildTaskRow(t));
+  }
+}
+
+// タスク 1 行(3b-2: 件名中心のコンパクト行 + 3c: 完了チェックボックス)。
 // 本文プレビューは出さない。行をクリック/タップで #task-modal を開き、そこで全内容を確認・編集する。
+// スマホ(IS_VIEWER)ではチェックボックスを出さず、モーダルも閲覧専用。
 function buildTaskRow(t) {
   const li = document.createElement('li');
   li.className = 'task-item';
   if (t.inProgress) li.classList.add('is-inprogress');
+  if (t.completed) li.classList.add('is-done');
   li.setAttribute('role', 'button');
   li.tabIndex = 0;
+
+  if (!IS_VIEWER) {
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.className = 'task-check';
+    check.checked = !!t.completed;
+    check.setAttribute('aria-label', t.completed ? '完了を取り消す' : '完了にする');
+    // 行クリック(モーダルを開く)には伝播させない。
+    check.addEventListener('click', (e) => e.stopPropagation());
+    check.addEventListener('change', () => {
+      TaskStore.setCompleted(t.id, check.checked);
+      if (check.checked) completedExpanded = true; // 入れた直後は「完了済み」を開いて動きが見えるように
+      renderTaskList();
+      scheduleTaskSync();
+    });
+    li.appendChild(check);
+  }
 
   const title = document.createElement('span');
   title.className = 'task-title';
@@ -294,6 +383,11 @@ function buildTaskRow(t) {
   return li;
 }
 
+// タスク変更を PC の自動反映キューに載せる(app.js の関数。スマホ / 未設定時は no-op)。
+function scheduleTaskSync() {
+  if (typeof scheduleAutoPublish === 'function') scheduleAutoPublish();
+}
+
 /* ---------- タスクフォーム ---------- */
 let editingTaskId = null;
 
@@ -304,20 +398,32 @@ function bindTaskForm() {
 }
 
 function openTaskModal(task) {
+  // スマホは閲覧専用。新規追加(task なし)は無効、既存タスクは読み取り専用で開く。
+  const readOnly = IS_VIEWER;
+  if (readOnly && !task) return;
+
   editingTaskId = task ? task.id : null;
-  document.getElementById('task-modal-title').textContent = task ? 'タスクを編集' : 'タスクを追加';
+  document.getElementById('task-modal-title').textContent =
+    readOnly ? 'タスク' : (task ? 'タスクを編集' : 'タスクを追加');
   document.getElementById('task-title').value = task ? task.title : '';
   document.getElementById('task-due').value = task && task.due ? task.due : '';
   document.getElementById('task-inprogress').checked = task ? task.inProgress : false;
   document.getElementById('task-body').value = task ? task.body : '';
-  document.getElementById('task-delete-btn').hidden = !task;
+
+  ['task-title', 'task-due', 'task-inprogress', 'task-body'].forEach((id) => {
+    document.getElementById(id).disabled = readOnly;
+  });
+  document.getElementById('task-delete-btn').hidden = readOnly || !task;
+  const submitBtn = document.querySelector('#task-form button[type="submit"]');
+  if (submitBtn) submitBtn.hidden = readOnly;
 
   openModal('task-modal');
-  document.getElementById('task-title').focus();
+  if (!readOnly) document.getElementById('task-title').focus();
 }
 
 function onSubmitTask(e) {
   e.preventDefault();
+  if (IS_VIEWER) return;
   const title = document.getElementById('task-title').value.trim();
   if (!title) {
     document.getElementById('task-title').focus();
@@ -330,21 +436,26 @@ function onSubmitTask(e) {
     due: document.getElementById('task-due').value || null,
     inProgress: document.getElementById('task-inprogress').checked,
     body: document.getElementById('task-body').value,
+    // 完了状態はフォームで触らないので既存値を維持する。
+    completed: existing ? existing.completed : false,
+    completedAt: existing ? existing.completedAt : null,
     // 予約フィールド: 今回は常に null。既存値があれば維持する。
     moveRule: existing ? existing.moveRule : null,
     templateName: existing ? existing.templateName : null,
   });
   closeModal('task-modal');
   renderTaskList();
+  scheduleTaskSync();
 }
 
 function onDeleteTask() {
-  if (!editingTaskId) return;
+  if (IS_VIEWER || !editingTaskId) return;
   const t = TaskStore.get(editingTaskId);
   if (!t) return;
   if (window.confirm(`「${t.title || '(件名なし)'}」を削除しますか?`)) {
     TaskStore.remove(editingTaskId);
     closeModal('task-modal');
     renderTaskList();
+    scheduleTaskSync();
   }
 }

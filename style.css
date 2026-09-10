@@ -640,10 +640,32 @@ body.tasks-view #add-event-btn { display: none !important; }
 .task-item.is-inprogress .task-title,
 .task-item.is-inprogress .task-meta { color: var(--danger); }
 
+/* 3c: 完了チェックボックスと完了済みタスクの見た目 */
+.task-check {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  align-self: center;
+  cursor: pointer;
+}
+.task-item.is-done { background: #f7f8fa; }
+.task-item.is-done .task-title {
+  text-decoration: line-through;
+  color: var(--muted);
+  font-weight: 500;
+}
+.task-item.is-done .task-meta { color: var(--muted); }
+/* スマホ(閲覧専用)ではチェックボックス・タスク追加を出さない */
+body.viewer-mode .tasks-head,
+body.viewer-mode .task-check { display: none !important; }
+
 /* タスクの本文は長文メモになりがち。編集画面では大きめに + 縦横どちらもドラッグで拡大可。
    本文を右に広げられるよう、タスクのモーダルは通常より幅広で、はみ出したらスクロール。 */
 #task-modal .modal { max-width: 720px; overflow: auto; }
 #task-body { min-height: 200px; line-height: 1.6; resize: both; }
+/* 閲覧専用モーダルの無効フィールドは、読みやすさ優先で色を落としすぎない */
+#task-form :disabled { opacity: 1; color: var(--text); -webkit-text-fill-color: var(--text); background: #f7f8fa; }
 
 /* 区分セクションの見出し(フェーズ3b)。#task-list の直下に <li> として並ぶ */
 .task-section-head {
@@ -659,10 +681,29 @@ body.tasks-view #add-event-btn { display: none !important; }
 .task-section-head:first-child { margin-top: 0; }
 .task-section-head.is-inprogress { color: var(--danger); }
 
+/* 3c: 「完了済み」セクション(最下部に常設・折りたたみ) */
+.task-list-sep {
+  list-style: none;
+  border-top: 2px solid var(--border);
+  margin: 14px 0 2px;
+  padding: 0;
+  height: 0;
+}
+.task-section-head.completed-head {
+  cursor: pointer;
+  border-bottom: none;
+  color: var(--muted);
+  user-select: none;
+}
+.task-section-head.completed-head:hover { color: var(--text); }
+.task-section-head.completed-head:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
 @media (max-width: 640px) {
   #task-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
   .view-tabs { order: 2; }
   .task-item { padding: 10px 12px; } /* タップ領域を少し広げる */
+  .task-check { width: 20px; height: 20px; }
+  .task-section-head.completed-head { padding: 8px 2px; }
   #task-add-btn { min-height: 44px; }
   /* スマホは画面いっぱい表示。本文の横ドラッグは無効(縦のみ) */
   #task-modal .modal { max-width: none; overflow: hidden; }

@@ -350,6 +350,8 @@ function buildExportPayload() {
     publishedAt: new Date().toISOString(),
     events: EventStore.all(),
     settings: { homeStation: Settings.get('homeStation') },
+    // タスク(フェーズ3c。completed を含む。taskTemplates は載せない)。後方互換の追加。
+    tasks: (typeof TaskStore !== 'undefined') ? TaskStore.all() : [],
     // PC が取り込んだ捕捉メモの id。スマホはこれを見て届いた分を消す。
     inboxAck: IS_VIEWER ? [] : InboxAck.list(),
   };
@@ -559,13 +561,15 @@ async function importEnvelopeText(text) {
   }
 
   if (payload && payload.kind === DATA_PAYLOAD_KIND) {
-    if (!window.confirm('取り込むと、この端末の予定と設定はすべて置き換わります。よろしいですか?')) {
+    const withTasks = Array.isArray(payload.tasks);
+    if (!window.confirm(`取り込むと、この端末の予定${withTasks ? '・タスク' : ''}・設定はすべて置き換わります。よろしいですか?`)) {
       return;
     }
     applyPayload(payload);
     render();
     updateFreshness();
-    setDataStatus(`取り込みました(予定 ${EventStore.all().length} 件)。`, 'ok');
+    const taskNote = withTasks ? ` / タスク ${payload.tasks.length} 件` : '';
+    setDataStatus(`取り込みました(予定 ${EventStore.all().length} 件${taskNote})。`, 'ok');
     return;
   }
 
@@ -576,6 +580,12 @@ async function importEnvelopeText(text) {
 function applyPayload(payload) {
   EventStore.replaceAll(Array.isArray(payload.events) ? payload.events : []);
   Settings.replaceAll(payload.settings || {});
+  // タスク(フェーズ3c): payload に tasks があるときだけ全置換する。
+  // 旧バージョンの配信データ(tasks なし)では端末内のタスクを消さない。
+  if (typeof TaskStore !== 'undefined' && Array.isArray(payload.tasks)) {
+    TaskStore.replaceAll(payload.tasks);
+    if (typeof renderTaskList === 'function') renderTaskList();
+  }
   // スマホ: PC が受け取り済みの捕捉メモを一覧から消す。
   if (IS_VIEWER && Array.isArray(payload.inboxAck) && payload.inboxAck.length) {
     if (InboxStore.dropByIds(payload.inboxAck) > 0) {
@@ -625,7 +635,8 @@ async function pullPublishedData() {
   if (payload && payload.kind === DATA_PAYLOAD_KIND) {
     applyPayload(payload);
     render();
-    setDataStatus(`取得しました(予定 ${EventStore.all().length} 件)。`, 'ok');
+    const taskNote = Array.isArray(payload.tasks) ? ` / タスク ${payload.tasks.length} 件` : '';
+    setDataStatus(`取得しました(予定 ${EventStore.all().length} 件${taskNote})。`, 'ok');
     closeModal('data-modal');
   }
   updateFreshness();
