@@ -8,7 +8,7 @@
  *   3-b) 次の 1 行を貼り付けて Enter:
  *        fetch('/dev-seed.js').then(r => r.text()).then(eval)
  *
- * TaskStore / EventStore / Settings を「ダミーデータで全置換」します。
+ * EventStore / Settings / TaskStore / TaskTemplateStore を「ダミーデータで全置換」します。
  * 本番プロファイルで実行すると実データが消えるため、確認ダイアログを挟みます。
  * ======================================================================= */
 (() => {
@@ -17,12 +17,13 @@
       + '本番・スマホでは実行しないでください。');
     return;
   }
-  if (typeof TaskStore === 'undefined' || typeof EventStore === 'undefined') {
+  if (typeof TaskStore === 'undefined' || typeof EventStore === 'undefined'
+      || typeof TaskTemplateStore === 'undefined') {
     console.warn('[OneBoard dev-seed] OneBoard のページで実行してください。');
     return;
   }
   if (!window.confirm(
-    'この端末(このプロファイル)の 予定・タスク・設定 を「ダミーデータ」で置き換えます。\n'
+    'この端末(このプロファイル)の 予定・タスク・記載パターン・設定 を「ダミーデータ」で置き換えます。\n'
     + '開発用プロファイルであることを確認してください。実行しますか?'
   )) {
     console.log('[OneBoard dev-seed] 取り消しました。');
@@ -56,8 +57,18 @@
     { id: 'dev-t6', title: '[ダミー] 期限なし(後で)', due: null, body: 'いつかやる' },
   ]);
 
+  TaskTemplateStore.replaceAll([
+    { id: 'dev-tpl1', name: '[ダミー]パターンA(入社)',
+      body: '入社手続き\n・雇用契約書\n・社会保険 資格取得届\n・（対象者）：\n・（入社日）：' },
+    { id: 'dev-tpl2', name: '[ダミー]パターンB(退社)',
+      body: '退社手続き\n・離職票\n・社会保険 資格喪失届\n・（対象者）：\n・（退職日）：' },
+    { id: 'dev-tpl3', name: '[ダミー]36協定',
+      body: '36協定届の作成\n・（協定期間）：\n・（時間外の上限）：\n・（特別条項の有無）：' },
+  ]);
+
   if (typeof render === 'function') render();
   if (typeof renderTaskList === 'function') renderTaskList();
   console.log('[OneBoard dev-seed] ダミーデータを投入しました: 予定 '
-    + EventStore.all().length + ' 件 / タスク ' + TaskStore.all().length + ' 件');
+    + EventStore.all().length + ' 件 / タスク ' + TaskStore.all().length
+    + ' 件 / 記載パターン ' + TaskTemplateStore.all().length + ' 件');
 })();

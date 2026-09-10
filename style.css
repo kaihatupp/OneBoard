@@ -600,7 +600,13 @@ body.tasks-view .cal-nav,
 body.tasks-view #add-event-btn { display: none !important; }
 
 /* タスク一覧 */
-.tasks-head { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.tasks-head {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
 .task-list {
   list-style: none;
   margin: 0;
@@ -697,6 +703,53 @@ body.viewer-mode .task-check { display: none !important; }
 }
 .task-section-head.completed-head:hover { color: var(--text); }
 .task-section-head.completed-head:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* 3d: 記載パターン(テンプレート) */
+.task-template-controls { display: flex; gap: 8px; align-items: center; }
+#task-template { flex: 1; min-width: 0; }
+#task-template-row { margin-bottom: 12px; }
+/* スマホ(閲覧専用)ではパターン欄は出さない */
+body.viewer-mode #task-template-row { display: none !important; }
+
+#template-form .field-group-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+#template-list { margin-top: 6px; }
+.template-item {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 0;
+  background: none;
+  border: none;
+}
+.template-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.template-pick:hover { background: #f7f9fc; }
+.template-name { font-weight: 700; font-size: 13px; }
+.template-preview {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.template-item > .ghost.small { flex-shrink: 0; align-self: center; }
 
 @media (max-width: 640px) {
   #task-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }

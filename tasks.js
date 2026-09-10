@@ -10,7 +10,9 @@
  *  - 3c: 完了機能(completed / completedAt。行チェックボックス、最下部に折りたたみの
  *        「完了済み」セクション常設)+ 携帯同期(配信データに tasks を載せる。
  *        スマホは閲覧専用)。
- * テンプレート(3d) / 一括移動・移動ルール(3f) / カレンダー連携(3g) はまだ含めない。
+ *  - 3d: 記載パターン(テンプレート)。oneboard.taskTemplates.v1。タスク作成時に本文の雛形を
+ *        選んで「本文にコピー」。パターンは**携帯同期の対象外**(配信ペイロードに載せない)。
+ * 一括移動・移動ルール(3f) / カレンダー連携(3g) はまだ含めない。
  *
  * 保存は localStorage キー "oneboard.tasks.v1" のみ。タスク自体が外部へ送られるのは
  * 3c の配信データ経路だけ(app.js が buildExportPayload() に tasks を載せて暗号化 → publish。
@@ -25,6 +27,7 @@
  * ======================================================================= */
 
 const TASKS_KEY = 'oneboard.tasks.v1';
+const TASK_TEMPLATES_KEY = 'oneboard.taskTemplates.v1';
 const TASK_VIEW_KEY = 'oneboard.view'; // sessionStorage: 最後に開いていたビュー
 
 function taskUid() {
@@ -135,6 +138,82 @@ const TaskStore = (() => {
   return { load, all, get, upsert, remove, setCompleted, replaceAll };
 })();
 
+/* ---------- 記載パターン(テンプレート)ストア(localStorage) ---------- *
+ * Template: { id, name, body, createdAt, updatedAt }
+ * タスク作成時に本文の雛形を選んでコピーするためのもの。
+ * ★ 携帯同期の対象外(配信ペイロードに載せない。PC ごとにローカル管理)。
+ */
+const TaskTemplateStore = (() => {
+  let items = [];
+
+  function normalize(t) {
+    const now = new Date().toISOString();
+    const src = t && typeof t === 'object' ? t : {};
+    return {
+      id: (typeof src.id === 'string' && src.id) ? src.id : ('tpl-' + taskUid()),
+      name: (src.name || '').trim(),
+      body: typeof src.body === 'string' ? src.body : '',
+      createdAt: src.createdAt || now,
+      updatedAt: src.updatedAt || now,
+    };
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(TASK_TEMPLATES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      items = Array.isArray(parsed) ? parsed.map(normalize).filter((x) => x.name) : [];
+    } catch (e) {
+      console.warn('[OneBoard] 記載パターンの読み込みに失敗しました', e);
+      items = [];
+    }
+    return items;
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(TASK_TEMPLATES_KEY, JSON.stringify(items));
+    } catch (e) {
+      console.error('[OneBoard] 記載パターンの保存に失敗しました', e);
+      alert('記載パターンの保存に失敗しました。ブラウザのストレージ容量をご確認ください。');
+    }
+  }
+
+  const all = () => items.slice();
+  const get = (id) => items.find((x) => x.id === id) || null;
+  const getByName = (name) => items.find((x) => x.name === name) || null;
+
+  function upsert(input) {
+    const clean = normalize(input);
+    if (!clean.name) return null;
+    const idx = items.findIndex((x) => x.id === clean.id);
+    if (idx >= 0) {
+      clean.createdAt = items[idx].createdAt;
+      clean.updatedAt = new Date().toISOString();
+      items[idx] = clean;
+    } else {
+      items.push(clean);
+    }
+    persist();
+    return clean;
+  }
+
+  function remove(id) {
+    const before = items.length;
+    items = items.filter((x) => x.id !== id);
+    if (items.length !== before) persist();
+  }
+
+  // 開発用(dev-seed.js)/バックアップ復元用に全置換。※ 携帯同期には使わない。
+  function replaceAll(list) {
+    items = (Array.isArray(list) ? list.map(normalize) : []).filter((x) => x.name);
+    persist();
+    return items.length;
+  }
+
+  return { load, all, get, getByName, upsert, remove, replaceAll };
+})();
+
 /* ---------- 並び順 ---------- */
 // フェーズ3a では区分分け・並び替えルールは無し。
 // 「進行中」を先頭に寄せ、あとは期限日(未設定は末尾)→ 作成順。
@@ -232,8 +311,10 @@ document.addEventListener('DOMContentLoaded', initTasks);
 
 function initTasks() {
   TaskStore.load();
+  TaskTemplateStore.load();
   bindViewTabs();
   bindTaskForm();
+  bindTemplateModal();
   renderTaskList();
 
   let last = 'calendar';
@@ -395,6 +476,50 @@ function bindTaskForm() {
   document.getElementById('task-add-btn').addEventListener('click', () => openTaskModal(null));
   document.getElementById('task-form').addEventListener('submit', onSubmitTask);
   document.getElementById('task-delete-btn').addEventListener('click', onDeleteTask);
+  document.getElementById('task-template-copy').addEventListener('click', onCopyTemplateToBody);
+}
+
+// #task-template に「(自由記載)」+ 登録済みパターン名を並べる。
+// current が未登録の名前(パターン削除後など)でも失われないよう option を足す。
+function populateTemplateSelect(current) {
+  const sel = document.getElementById('task-template');
+  sel.innerHTML = '';
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = '(自由記載)';
+  sel.appendChild(opt0);
+
+  const names = TaskTemplateStore.all().map((t) => t.name);
+  if (current && !names.includes(current)) names.push(current);
+  for (const n of names) {
+    const o = document.createElement('option');
+    o.value = n;
+    o.textContent = n;
+    sel.appendChild(o);
+  }
+  sel.value = current || '';
+}
+
+// 「本文にコピー」: 選択中パターンの body を本文欄へ。本文が空でなければ上書き確認。
+function onCopyTemplateToBody() {
+  if (IS_VIEWER) return;
+  const name = document.getElementById('task-template').value;
+  if (!name) {
+    alert('コピーするパターンを選んでください。');
+    return;
+  }
+  const tpl = TaskTemplateStore.getByName(name);
+  if (!tpl) {
+    alert(`「${name}」は見つかりませんでした(削除された可能性)。`);
+    return;
+  }
+  const bodyEl = document.getElementById('task-body');
+  if (bodyEl.value.trim()
+      && !window.confirm('本文欄の内容をパターンの雛形で上書きします。よろしいですか?')) {
+    return;
+  }
+  bodyEl.value = tpl.body;
+  bodyEl.focus();
 }
 
 function openTaskModal(task) {
@@ -409,8 +534,9 @@ function openTaskModal(task) {
   document.getElementById('task-due').value = task && task.due ? task.due : '';
   document.getElementById('task-inprogress').checked = task ? task.inProgress : false;
   document.getElementById('task-body').value = task ? task.body : '';
+  populateTemplateSelect(task ? task.templateName : '');
 
-  ['task-title', 'task-due', 'task-inprogress', 'task-body'].forEach((id) => {
+  ['task-title', 'task-due', 'task-inprogress', 'task-body', 'task-template'].forEach((id) => {
     document.getElementById(id).disabled = readOnly;
   });
   document.getElementById('task-delete-btn').hidden = readOnly || !task;
@@ -439,9 +565,10 @@ function onSubmitTask(e) {
     // 完了状態はフォームで触らないので既存値を維持する。
     completed: existing ? existing.completed : false,
     completedAt: existing ? existing.completedAt : null,
+    // 3d: プルダウンで選んだパターン名(「(自由記載)」なら null)。
+    templateName: document.getElementById('task-template').value || null,
     // 予約フィールド: 今回は常に null。既存値があれば維持する。
     moveRule: existing ? existing.moveRule : null,
-    templateName: existing ? existing.templateName : null,
   });
   closeModal('task-modal');
   renderTaskList();
@@ -457,5 +584,101 @@ function onDeleteTask() {
     closeModal('task-modal');
     renderTaskList();
     scheduleTaskSync();
+  }
+}
+
+/* ---------- 記載パターン(テンプレート)管理モーダル ---------- */
+let editingTemplateId = null;
+
+function bindTemplateModal() {
+  document.getElementById('template-manage-btn').addEventListener('click', openTemplateModal);
+  document.getElementById('template-form').addEventListener('submit', onSubmitTemplate);
+  document.getElementById('template-new-btn').addEventListener('click', () => fillTemplateForm(null));
+  document.getElementById('template-delete-btn').addEventListener('click', onDeleteTemplate);
+}
+
+function openTemplateModal() {
+  if (IS_VIEWER) return;
+  fillTemplateForm(null);
+  renderTemplateList();
+  openModal('template-modal');
+  document.getElementById('template-name').focus();
+}
+
+function fillTemplateForm(tpl) {
+  editingTemplateId = tpl ? tpl.id : null;
+  document.getElementById('template-form-title').textContent = tpl ? 'パターンを編集' : '新しいパターン';
+  document.getElementById('template-name').value = tpl ? tpl.name : '';
+  document.getElementById('template-body').value = tpl ? tpl.body : '';
+  document.getElementById('template-delete-btn').hidden = !tpl;
+}
+
+function renderTemplateList() {
+  const ul = document.getElementById('template-list');
+  const empty = document.getElementById('template-empty');
+  ul.innerHTML = '';
+  const list = TaskTemplateStore.all().slice().sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  empty.hidden = list.length > 0;
+
+  for (const tpl of list) {
+    const li = document.createElement('li');
+    li.className = 'template-item';
+
+    const main = document.createElement('button');
+    main.type = 'button';
+    main.className = 'template-pick';
+    const nm = document.createElement('span');
+    nm.className = 'template-name';
+    nm.textContent = tpl.name;
+    const preview = document.createElement('span');
+    preview.className = 'template-preview';
+    preview.textContent = tpl.body.replace(/\s+/g, ' ').trim().slice(0, 40);
+    main.appendChild(nm);
+    main.appendChild(preview);
+    main.addEventListener('click', () => fillTemplateForm(tpl));
+    li.appendChild(main);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'ghost small';
+    del.textContent = '削除';
+    del.addEventListener('click', () => {
+      if (window.confirm(`パターン「${tpl.name}」を削除しますか?`)) {
+        TaskTemplateStore.remove(tpl.id);
+        if (editingTemplateId === tpl.id) fillTemplateForm(null);
+        renderTemplateList();
+      }
+    });
+    li.appendChild(del);
+
+    ul.appendChild(li);
+  }
+}
+
+function onSubmitTemplate(e) {
+  e.preventDefault();
+  if (IS_VIEWER) return;
+  const name = document.getElementById('template-name').value.trim();
+  if (!name) {
+    document.getElementById('template-name').focus();
+    return;
+  }
+  const saved = TaskTemplateStore.upsert({
+    id: editingTemplateId || undefined,
+    name,
+    body: document.getElementById('template-body').value,
+  });
+  fillTemplateForm(saved); // 保存後は「編集」状態のまま(削除ボタンが出る)
+  renderTemplateList();
+}
+
+function onDeleteTemplate() {
+  if (IS_VIEWER || !editingTemplateId) return;
+  const tpl = TaskTemplateStore.get(editingTemplateId);
+  if (!tpl) return;
+  if (window.confirm(`パターン「${tpl.name}」を削除しますか?`)) {
+    TaskTemplateStore.remove(editingTemplateId);
+    fillTemplateForm(null);
+    renderTemplateList();
   }
 }
