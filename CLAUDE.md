@@ -207,8 +207,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - ヘッダーに「カレンダー / タスク」タブ(`#tab-calendar` / `#tab-tasks`)。`switchView()` で
     `#view-calendar` ⇄ `#view-tasks` を出し分け(`body.tasks-view` でカレンダー専用の月ナビ・
     「予定を追加」を隠す)。最後に開いていたビューは `sessionStorage` の `oneboard.view` に記憶。
-  - タスク画面(`#task-list`)。並びは `sortTasks()` =「進行中を先頭 → 期限日(未設定は末尾)
-    → 作成順」。「進行中」のタスクは件名・メタを赤字表示。
+  - タスク画面(`#task-list`)。並びは `sortTasks()` =「進行中を先頭 → 期限日昇順(未設定は末尾)
+    →(同じ期限日の中だけ)件名先頭の「会社名」あいうえお順・会社名なしは後ろ → 作成順」。
+    「進行中」のタスクは件名・メタを赤字表示。
   - CRUD: `#task-modal`(件名 / 期限日 = `<input type="date">` / 進行中トグル / 本文)。
     追加・編集・削除。閉じる操作は app.js の `bindModals()` が面倒を見る(`.modal-overlay` +
     `[data-close]`)。`openModal` / `closeModal` は app.js の共有関数。
@@ -241,7 +242,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     カレンダーは日曜始まりのまま変更なし)。
   - 各セクションは**該当 0 件なら見出しごと非表示**(「期限切れ」「今日」等も含む)。
     全セクション 0 件のときだけ `#task-empty` を表示。
-  - セクション内の並びは 3a と同じ `sortTasks()`(期限日順 → 作成順)。
+  - セクション内の並びは 3a と同じ `sortTasks()`(期限日昇順 →〔同じ期限日の中だけ〕会社名あいうえお順
+    → 作成順)。会社名は `extractCompanyName(title)`: 件名先頭が `「〇〇」`(全角かぎ括弧)なら中身を
+    会社名として扱う(先頭でなければ `null` = 会社名なし。会社名なしは同じ期限日グループの最後)。
+    **期限日が違うタスク同士の順序は変えない**(期限日優先は維持)。`sortCompleted()` は対象外。
+    別項目としての会社名入力 UI・会社名フィルタは今回含めない(件名内のかっこ書きをそのまま使う)。
   - 境界計算は events.js の `toYmd()` / `fromYmd()` を流用(重複実装なし)。
   - 一覧行(3b-2): **件名中心のコンパクトな 1 行**。本文プレビューは出さない。行に残すのは
     件名(長いと省略・ホバーで全文)+ メタ(進行中 / 期限 M/D(曜)/ 本文ありは 📝)だけ。
@@ -516,7 +521,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v14`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v15`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
