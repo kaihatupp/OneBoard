@@ -9,3 +9,6 @@ Desktop.ini
 scratchpad/
 *.log
 __pycache__/
+
+# 開発用 Chrome プロファイル(OneBoard開発用起動.bat が作る。本番データと分離するためのもの)
+.dev-profile/
