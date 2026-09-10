@@ -319,3 +319,25 @@ function compareEventsForDay(a, b) {
   if (at !== bt) return at < bt ? -1 : 1;
   return a.title.localeCompare(b.title, 'ja');
 }
+
+/**
+ * 予定 ev をその日 ymd に展開した「発生」が、now("現在時刻")より前に終了したか。
+ * 繰り返し予定は発生日ごとに判定される(この関数は 1 発生分だけを見る)。
+ *  - endTime あり:    その日の endTime を過ぎたら終了
+ *  - startTime のみ:   その日の startTime を過ぎたら終了
+ *  - 終日 / 時刻なし:  その日が終わったら(翌日 0:00 以降)終了
+ * Event のデータ構造は変更せず、既存フィールドから都度計算する(描画のたびに呼ぶ)。
+ */
+function isEventOccurrencePast(ev, ymd, now) {
+  if (!ev || !/^\d{4}-\d{2}-\d{2}$/.test(ymd || '')) return false;
+  const n = now || new Date();
+  const [y, mo, da] = ymd.split('-').map(Number);
+  const nextDayStart = new Date(y, mo - 1, da + 1); // その発生日の翌日 0:00
+
+  if (ev.allDay || (!ev.startTime && !ev.endTime)) {
+    return n >= nextDayStart;
+  }
+  const m = /^(\d{1,2}):(\d{2})$/.exec(ev.endTime || ev.startTime || '');
+  if (!m) return n >= nextDayStart;
+  return n > new Date(y, mo - 1, da, Number(m[1]), Number(m[2]));
+}

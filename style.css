@@ -351,6 +351,11 @@ main {
 .chip-purple { background: var(--chip-purple); }
 .chip-gray   { background: var(--chip-gray); }
 
+/* 終了済みの予定(発生)は色分けを保ったまま強度だけ落とす。
+   判定は app.js が描画のたびに isEventOccurrencePast() で行う(→ events.js)。 */
+.event-past { opacity: 0.42; filter: saturate(0.7); }
+.day-event.event-past { opacity: 0.5; }
+
 /* ---------- モーダル ---------- */
 .modal-overlay {
   position: fixed;

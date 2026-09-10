@@ -117,6 +117,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
       (元テキストは残す。繰り返し押しても要約行は 1 本)。
   - 繰り返し予定: 毎月の日付指定(例: 毎月25日) / 第◯曜日指定(例: 第1火曜、最終金曜)
   - 繰り返しの終了日(任意)、繰り返し予定は「この日だけ削除」(除外日)/「すべて削除」に対応
+  - **終了済み予定の淡色表示**(2026-09-10 追加): 現在時刻を過ぎた予定(発生)を
+    月表示のセル内チップ・日別モーダルの両方で淡色化する。
+    - 判定 `isEventOccurrencePast(ev, ymd, now)`(events.js): `endTime` があればその日時、
+      無く `startTime` のみならその時刻、終日/時刻なしはその日の翌日 0:00 を過ぎたら「終了」。
+      繰り返し予定は**発生日ごと**に判定(過去回だけ淡色、未来回は通常)。
+    - 見た目: 色分けは保持したまま、共通クラス `.event-past` で一律に強度を落とす
+      (`opacity` + `filter: saturate()`。色ごとの薄色は用意しない)。
+    - `Event` 構造は不変。描画のたび(`render()` / `openDayModal()`)に現在時刻で都度判定。
+      タイマーによる自動更新はしない。
   - 通知機能は未実装(将来フェーズ)
 - **フェーズ2a(実装済み): PWA化・スマホ単体対応**
   - `manifest.webmanifest` + `sw.js` でホーム画面追加・スタンドアロン起動・オフライン表示に対応
@@ -507,7 +516,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v13`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v14`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
