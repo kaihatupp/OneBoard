@@ -956,15 +956,16 @@ function render() {
   const grid = document.getElementById('calendar-grid');
   grid.innerHTML = '';
 
-  const todayStr = toYmd(new Date());
+  const now = new Date();
+  const todayStr = toYmd(now);
   for (let i = 0; i < 42; i++) {
     const d = new Date(gridStart);
     d.setDate(gridStart.getDate() + i);
-    grid.appendChild(buildDayCell(d, todayStr));
+    grid.appendChild(buildDayCell(d, todayStr, now));
   }
 }
 
-function buildDayCell(d, todayStr) {
+function buildDayCell(d, todayStr, now) {
   const ymd = toYmd(d);
   const inMonth = d.getMonth() === state.viewMonth;
   const dow = d.getDay();
@@ -997,7 +998,7 @@ function buildDayCell(d, todayStr) {
   const list = state.occ.get(ymd) || [];
   const chipWrap = document.createElement('div');
   chipWrap.className = 'chips';
-  list.slice(0, MAX_CHIPS_PER_CELL).forEach((ev) => chipWrap.appendChild(buildChip(ev)));
+  list.slice(0, MAX_CHIPS_PER_CELL).forEach((ev) => chipWrap.appendChild(buildChip(ev, ymd, now)));
   if (list.length > MAX_CHIPS_PER_CELL) {
     const more = document.createElement('div');
     more.className = 'chip-more';
@@ -1016,10 +1017,11 @@ function buildDayCell(d, todayStr) {
   return cell;
 }
 
-function buildChip(ev) {
+function buildChip(ev, ymd, now) {
   const chip = document.createElement('div');
   chip.className = `chip chip-${ev.color || 'blue'}`;
   if (ev.recurrence) chip.classList.add('is-repeat');
+  if (isEventOccurrencePast(ev, ymd, now)) chip.classList.add('event-past');
   const label = !ev.allDay && ev.startTime ? `${ev.startTime} ${ev.title}` : ev.title;
   chip.textContent = label;
   chip.title = label;
@@ -1046,10 +1048,12 @@ function openDayModal(ymd) {
   listEl.innerHTML = '';
   const items = state.occ.get(ymd) || [];
   emptyEl.hidden = items.length > 0;
+  const now = new Date();
 
   items.forEach((ev) => {
     const li = document.createElement('li');
     li.className = `day-event chip-${ev.color || 'blue'}`;
+    if (isEventOccurrencePast(ev, ymd, now)) li.classList.add('event-past');
 
     const main = document.createElement('div');
     main.className = 'day-event-main';
