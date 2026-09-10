@@ -243,8 +243,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 稼働確認済み(2026-09-09): 各区分への振り分け(今日=水曜、月曜始まりの週境界 9/13・9/14・9/20、
     月末境界 9/30・10/1・10/31)、期限切れセクションの表示/非表示切替、0 件セクションの省略、
     全消し時の `#task-empty`、一覧が件名中心になること・行クリックで本文まで確認できることを実ブラウザで確認。
+- **フェーズ3c(実装済み): タスクの完了機能 + 携帯同期**
+  - **完了機能**:
+    - `Task` に `completed`(true/false、既定 false)と `completedAt`(ISO / null)を追加。
+    - 一覧の各行(PC のみ)に完了チェックボックス(`.task-check`)。チェックで `completed:true` +
+      `completedAt` を記録し `TaskStore.setCompleted()`、即再描画で「完了済み」へ移動。外すと戻る。
+    - `bucketOf()` は先頭で `completed === true → 'completed'` を返す(通常の区分判定から除外。
+      `inProgress` より優先)。
+    - 一覧最下部に区切り線(`.task-list-sep`)+ **「完了済み」セクションを常設**
+      (`renderCompletedSection()`。0 件でも見出しは出す)。既定は折りたたみ(`completedExpanded=false`、
+      見出しは `▸ 完了済み（N）`)。見出しをタップ/Enter/Space で開閉(`▾`)。開くと完了日時の
+      新しい順(`sortCompleted()`)。チェックを入れた直後は自動で開く。
+    - 完了済みタスクも件名クリックで `#task-modal`(3a 流用)。完了状態はフォームで触らないので
+      編集保存時に既存値を維持。
+  - **携帯同期**:
+    - 配信ペイロードに `tasks: Task[]`(`completed` 含む)を追加。`taskTemplates` は載せない(方針維持)。
+      後方互換: `applyPayload()` は **`payload.tasks` が配列のときだけ**全置換(旧データでは端末内タスクを消さない)。
+    - `app.js`: `buildExportPayload()` が `TaskStore.all()` を載せ、`applyPayload()` が
+      `TaskStore.replaceAll()` + `renderTaskList()`。`tasks.js` はタスク変更(追加/編集/削除/完了チェック)
+      のたびに `scheduleAutoPublish()` を呼ぶ(= 例外3 の自動反映・手動反映の対象に入る)。
+    - スマホ(`IS_VIEWER`): タスクタブは表示、区分セクション + 折りたたみ「完了済み」も同じ。
+      **チェックボックス・「＋タスクを追加」は非表示**、`#task-modal` は**閲覧専用**
+      (フィールド `disabled`、保存・削除ボタン非表示、タイトルは「タスク」)。本文は読める。
+    - `server.py` は変更なし(`tasks` は暗号文 `ct` の中。サーバーは見ない)。
+    - **PC 復元**(「GitHub から復元」)は `importEnvelopeText()` → `applyPayload()` 経由なので
+      `tasks`(completed 含む)も自動的に復元対象。
+  - 変更ファイル: `tasks.js` / `app.js`(payload と applyPayload) / `style.css` / `index.html`(取り込み注意文) / `sw.js`(v11)。
+  - 稼働確認済み(2026-09-10、ヘッドレス Chrome で 51 チェック): completed の normalize、
+    `bucketOf` の completed 除外、完了済みセクションの常設・折りたたみ・件数・新しい順、
+    チェック→完了済みへ移動 / 外す→区分へ復帰、編集で completed 維持、
+    ペイロード round-trip で completed/completedAt 保持、旧ペイロード(tasks なし)で端末内タスクを消さない、
+    スマホ閲覧専用(チェックなし・読み取り専用モーダル)。
 - **フェーズ3・残り(未実装)**
-  - 3c: 携帯同期(スマホは閲覧専用ミラー)。`oneboard.tasks.v1` が対象。テンプレートは対象外
   - 3d: テンプレート(記載パターン)機能
   - 3f: 一括移動ボタン・移動ルール(前倒し/後ろ倒しの判定ロジックもここで具体化)
   - 3g: カレンダー連携表示
@@ -262,7 +292,7 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 │                         #   + 配信(SyncPrefs / 自動反映)・捕捉インボックス(InboxStore / InboxAck)
-├── tasks.js             # タスク管理(3a: TaskStore/ビュー切替/CRUD、3b: 区分セクション表示)。app.js の後に読み込み
+├── tasks.js             # タスク管理(3a: TaskStore/ビュー切替/CRUD、3b: 区分セクション、3c: 完了機能+同期連携)。app.js の後に読み込み
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
@@ -325,15 +355,18 @@ OneBoard-app-dev/
 //   title,                    // 件名(自由記述)
 //   due,                      // "YYYY-MM-DD" | null(期限日)
 //   inProgress,               // true/false。true なら一覧で件名・メタを赤字表示
+//   completed,                // true/false(既定 false)。true は区分判定の対象外 →「完了済み」へ
+//   completedAt,              // 完了日時(ISO)| null
 //   moveRule,                 // ★将来の一括移動(3f)用の予約フィールド。現状は常に null
 //   templateName,             // ★将来のテンプレート(3d)用の予約フィールド。現状は常に null
 //   body,                     // 本文(自由記述)
 //   createdAt, updatedAt
 // }
-//   ※ 3c で携帯同期の対象になる予定。後方互換を意識して無闇に変更しない。
+//   ※ 3c: 携帯同期の対象(配信ペイロードの tasks[])。taskTemplates は同期しない方針。
 //   ※ 並び順は tasks.js の sortTasks(): 進行中 → 期限日(null 末尾)→ 作成順。
+//         完了済みは sortCompleted(): 完了日時の新しい順。
 //   ※ 3b: 表示は due から都度計算した区分セクションに分ける(bucketOf。区分はタスクに保存しない。
-//         週の始まりは月曜。0 件のセクションは非表示)。
+//         週の始まりは月曜。0 件のセクションは非表示。completed は最下部「完了済み」へ)。
 
 // 同期設定: localStorage キー "oneboard.sync.v1" … app.js の SyncPrefs
 //   { passphrase,               // 暗号化パスフレーズ(この端末にだけ保存。外部送信なし)
@@ -353,14 +386,16 @@ OneBoard-app-dev/
 //     kdf:{name:"PBKDF2",hash:"SHA-256",iter,salt(b64)}, cipher:"AES-GCM", iv(b64), ct(b64) }
 //   復号後のペイロード(配信データ):
 //   { kind:"oneboard-export", version:1, publishedAt(ISO), events:Event[],
-//     settings:{homeStation}, inboxAck:string[] }   // inboxAck は後方互換の追加(無くても動く)
+//     settings:{homeStation}, tasks:Task[], inboxAck:string[] }
+//     ※ tasks / inboxAck は後方互換の追加(無くても動く。tasks が配列のときだけ全置換)
 
 // 捕捉インボックスの受け渡しファイル oneboard-inbox.enc.json … 同じエンベロープ形式
 //   復号後: { kind:"oneboard-inbox", version:1, exportedAt(ISO), items:[{id,text,createdAt}] }
 ```
 
 - 古い形式のデータは `EventStore.normalize()` が後方互換で補完する(実データを壊さない)。
-- 取り込み時は `EventStore.replaceAll()` / `Settings.replaceAll()` が全置換する(方式Aは一方向のため)。
+- 取り込み時は `EventStore.replaceAll()` / `Settings.replaceAll()` /(payload に tasks があれば)
+  `TaskStore.replaceAll()` が全置換する(方式Aは一方向のため)。
   捕捉インボックス(`oneboard-inbox`)だけは全置換ではなく `InboxStore.mergeIncoming()` で追記。
 - 繰り返しの展開は `eventOccurrences()` / `buildOccurrenceMap()` が担当。祝日判定は `Holidays.nameOf()`。
 
@@ -409,7 +444,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v10`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v11`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
