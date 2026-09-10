@@ -276,8 +276,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     チェック→完了済みへ移動 / 外す→区分へ復帰、編集で completed 維持、
     ペイロード round-trip で completed/completedAt 保持、旧ペイロード(tasks なし)で端末内タスクを消さない、
     スマホ閲覧専用(チェックなし・読み取り専用モーダル)。
+- **フェーズ3d(実装済み): 記載パターン(テンプレート)**
+  - 「入社A」「退社A」「36協定A」のような**本文の雛形**を用意しておき、タスク作成時に選んで
+    本文欄にコピーする。パターンは今後マサさんが少しずつ追加する想定(まずは土台)。
+  - `TaskTemplateStore`(localStorage `oneboard.taskTemplates.v1`。
+    `Template: { id, name, body, createdAt, updatedAt }`)。一覧・追加・編集・削除。
+  - **携帯同期の対象外**。`buildExportPayload()` に載せない(方針どおり。PC ごとにローカル管理)。
+  - パターン管理: タスク画面の「パターン管理」ボタン → `#template-modal`(上にフォーム、下に一覧。
+    一覧クリックでフォームに読み込み、「新規」でリセット、削除は確認ダイアログ)。
+  - タスクフォーム: 「パターン」プルダウン(`#task-template`。`(自由記載)`=`""` + 登録名)+
+    「本文にコピー」ボタン(`onCopyTemplateToBody`)。**選ぶだけでは本文は変わらない**。
+    「本文にコピー」で `body` を本文欄へ(本文が空でなければ上書き confirm)。コピー後は自由編集。
+    選択中の名前は保存時に `templateName` に記録(`(自由記載)` は `null`)。削除済みパターン名も
+    option として保持し、保存で失われない。
+  - スマホ(`IS_VIEWER`): 「パターン管理」ボタンとタスクフォームの「パターン」欄は非表示。
+  - 含めない: `:` で終わる行の個別入力欄化(必要になれば別フェーズ)。
+  - 変更ファイル: `tasks.js` / `index.html` / `style.css` / `sw.js`(v12)。app.js は変更なし。
+  - 稼働確認済み(2026-09-10、ヘッドレス Chrome で 36 チェック / 開発用プロファイルで統合ロード):
+    パターンの追加・編集(id/createdAt 保持)・削除(確認)、一覧の並び、
+    プルダウンの中身、「本文にコピー」(空→そのままコピー / 非空→上書き確認)、
+    選ぶだけでは本文不変、`templateName` の記録と復元、削除済み名の保持、スマホでの無効化。
 - **フェーズ3・残り(未実装)**
-  - 3d: テンプレート(記載パターン)機能
   - 3f: 一括移動ボタン・移動ルール(前倒し/後ろ倒しの判定ロジックもここで具体化)
   - 3g: カレンダー連携表示
 - **将来フェーズ(構想・未着手)**
@@ -294,7 +313,7 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 │                         #   + 配信(SyncPrefs / 自動反映)・捕捉インボックス(InboxStore / InboxAck)
-├── tasks.js             # タスク管理(3a: TaskStore/ビュー切替/CRUD、3b: 区分セクション、3c: 完了機能+同期連携)。app.js の後に読み込み
+├── tasks.js             # タスク管理(3a: CRUD、3b: 区分、3c: 完了+同期、3d: 記載パターン)。app.js の後に読み込み
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
@@ -363,11 +382,20 @@ OneBoard-app-dev/
 //   completed,                // true/false(既定 false)。true は区分判定の対象外 →「完了済み」へ
 //   completedAt,              // 完了日時(ISO)| null
 //   moveRule,                 // ★将来の一括移動(3f)用の予約フィールド。現状は常に null
-//   templateName,             // ★将来のテンプレート(3d)用の予約フィールド。現状は常に null
+//   templateName,             // 3d: タスク作成時に選んだ記載パターン名(自由記載なら null)
 //   body,                     // 本文(自由記述)
 //   createdAt, updatedAt
 // }
 //   ※ 3c: 携帯同期の対象(配信ペイロードの tasks[])。taskTemplates は同期しない方針。
+
+// 記載パターン: localStorage キー "oneboard.taskTemplates.v1" … Template[](tasks.js の TaskTemplateStore)
+// Template: {
+//   id,                       // "tpl-<UUID>"
+//   name,                     // パターン名(例 "入社A" / "退社A" / "36協定A")。必須
+//   body,                     // 本文の雛形(複数行・自由記述)
+//   createdAt, updatedAt
+// }
+//   ※ 3d: タスク作成時に本文欄へコピーするための雛形。**携帯同期の対象外**(配信ペイロードに載せない)。
 //   ※ 並び順は tasks.js の sortTasks(): 進行中 → 期限日(null 末尾)→ 作成順。
 //         完了済みは sortCompleted(): 完了日時の新しい順。
 //   ※ 3b: 表示は due から都度計算した区分セクションに分ける(bucketOf。区分はタスクに保存しない。
@@ -449,7 +477,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v11`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v12`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
@@ -478,7 +506,8 @@ OneBoard-app-dev/
 - 開発・動作確認は原則ダミーデータで行う。本番の実タスク・実予定が入った状態での
   機能テストは避け、必要な検証はダミーデータで再現すること。
 - やむを得ず本番データに触れる場合(不具合の再現調査など):
-  - タスクの title / body、予定の title / note / location など、人が読む自由記述
+  - タスクの title / body、予定の title / note / location、
+    パターン(taskTemplates)の name / body など、人が読む自由記述
     フィールドの中身をツール出力・スクリーンショット・会話ログに表示しない。
     件数・型・エラーの有無など、構造的な情報のみを報告する。
   - localStorage の snapshot/restore 等でも同様(2026-09-09 の運用ルールを恒久化。
@@ -497,7 +526,8 @@ OneBoard-app-dev/
 - `.dev-profile/` は `.gitignore` 済み(Git 管理外)。初回は空。
 - ダミーデータの投入: 開発用プロファイルの DevTools コンソールで
   `fetch('/dev-seed.js').then(r => r.text()).then(eval)` を実行(または `dev-seed.js` の中身を貼り付け)。
-  予定・タスク・設定を「[ダミー]…」で全置換する(localhost 以外 / 確認ダイアログでガード)。
+  予定・タスク・**記載パターン(taskTemplates)**・設定を「[ダミー]…」で全置換する
+  (localhost 以外 / 確認ダイアログでガード)。パターン管理機能も本番プロファイルに触れず確認できる。
 - 本番用 `OneBoard起動.bat` は**変更しない**(既定プロファイル = 本番データ)。
 
 ## git の著者情報(2026-09-07 に統一済み)
