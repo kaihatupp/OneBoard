@@ -75,6 +75,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `OneBoard起動.bat` をダブルクリック → `py server.py 8123`(`http.server` 相当の静的配信)で
   ローカルサーバーを起動し、`http://localhost:8123/` を **Chrome の新しいウィンドウ**で開く
   (`chrome.exe --new-window`。Chrome が既に開いていても必ず別ウィンドウ)。
+  - 開発中の動作確認は `OneBoard開発用起動.bat` を使う(別プロファイル・ダミーデータ。
+    下記「本番データの取り扱い(恒久ルール)」)。本番用 `OneBoard起動.bat` は変更しない。
   - Chrome の実行ファイルは `Program Files` /`Program Files (x86)` /`LocalAppData` の
     既定パス → レジストリ App Paths(HKLM/HKCU)の順で探す。見つからなければ既定ブラウザで開く。
   - **`.bat` / `.ps1` は必ず CRLF 改行で保存する。** LF で保存すると cmd.exe が
@@ -297,7 +299,10 @@ OneBoard-app-dev/
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
 ├── server.py            # ローカルサーバー(/__bye /__ping で自動終了 + /__publish で配信データを git push)
-├── OneBoard起動.bat    # server.py 起動 + Chrome を新規ウィンドウで開く(CRLF 改行必須)
+├── OneBoard起動.bat    # 【本番用】server.py 起動 + Chrome を新規ウィンドウで開く(既定プロファイル = 本番データ。CRLF 改行必須・変更しない)
+├── OneBoard開発用起動.bat # 【開発用】同上だが Chrome を .dev-profile プロファイルで開く(本番 localStorage と分離)
+├── dev-seed.js          # 開発用プロファイルにダミーの予定・タスク・設定を投入するコンソールスクリプト
+├── .dev-profile/        # 開発用 Chrome プロファイル(.gitignore 済み。初回は空)
 ├── manifest.webmanifest # PWA マニフェスト(相対URL。start_url/scope とも "./")
 ├── sw.js                # Service Worker(https のみ。アプリシェル + crypto/tasks.js + holidays.json。配信データは network-first)
 ├── .nojekyll            # GitHub Pages の Jekyll 処理を無効化(空ファイル)
@@ -458,20 +463,42 @@ OneBoard-app-dev/
 齋藤オフィスの他アプリと同様、開発相談時に実在の個人データをそのまま貼り付けない。
 本アプリのデータは常にブラウザ内に留まり、サーバーへは一切送信されない。
 
-- **予定 (`oneboard.events.v1`) の外部送信は「配信データ」経路のみ**。中身は AES-GCM 暗号文
-  (→ 設計制約の例外1・3)。平文が git / GitHub に載ることはない。
-- **タスク (`oneboard.tasks.v1`) はどこにも送信されない**(端末内 `localStorage` のみ。
-  `buildExportPayload()` に含まれず、`tasks.js` にネットワークコードなし。2026-09-09 に
-  git 全履歴・配信ファイルを確認しクライアント名等が無いことを確認済み)。
-- **Claude Code のテスト時の注意**: localStorage を snapshot / restore する際、その中身を
-  ツール出力に表示しない(件数・チェックサムだけ確認する)。2026-09-09、タスク一覧の
-  改修テスト中にマサさんの実タスク(請求書関連・クライアント名/報酬体系を含む)がツール
-  出力とスクリーンショットに写り、セッションログを事後に手作業で伏字化した。
+- **予定 (`oneboard.events.v1`) / タスク (`oneboard.tasks.v1`) の外部送信は「配信データ」経路のみ**。
+  中身は AES-GCM 暗号文(→ 設計制約の例外1・3)。平文が git / GitHub に載ることはない
+  (2026-09-09 に git 全履歴・配信ファイルを確認済み。フェーズ3c でタスクも同経路に追加。
+  `taskTemplates` は同期対象にしない)。
 - **9/7 のデータ復旧作業ファイル**(Chrome LevelDB ダンプ・復旧済み予定の平文 JSON 等)は
   スクラッチパッドから 2026-09-09 に全削除。
 - デスクトップに `OneBoard-復旧データ-2026-09-07.json`(復旧済み6件の**平文**バックアップ)が
   残っている。現データは GitHub(暗号化)+ 端末 localStorage にあるので、マサさんが不要と
   判断したら削除してよい。
+
+## 本番データの取り扱い(恒久ルール)
+
+- 開発・動作確認は原則ダミーデータで行う。本番の実タスク・実予定が入った状態での
+  機能テストは避け、必要な検証はダミーデータで再現すること。
+- やむを得ず本番データに触れる場合(不具合の再現調査など):
+  - タスクの title / body、予定の title / note / location など、人が読む自由記述
+    フィールドの中身をツール出力・スクリーンショット・会話ログに表示しない。
+    件数・型・エラーの有無など、構造的な情報のみを報告する。
+  - localStorage の snapshot/restore 等でも同様(2026-09-09 の運用ルールを恒久化。
+    この日、タスク一覧の改修テスト中にマサさんの実タスクがツール出力・スクリーンショットに写り、
+    セッションログを事後に手作業で伏字化した)。
+  - 触れる前に、何を・なぜ確認する必要があるか一言添えてから進める。
+- 開発中は下記「開発用プロファイル起動bot」を使い、本番データとは別のブラウザ
+  プロファイル(ダミーデータのみ)で動作確認を行うことを基本とする。
+
+### 開発用プロファイル起動bot
+
+- `OneBoard開発用起動.bat` … 本番用 `OneBoard起動.bat` と同じく `server.py` を起動するが、
+  Chrome を `--user-data-dir="<このフォルダ>\.dev-profile"` 付きで開く。プロファイルが違えば
+  `localhost:8123` の `localStorage` も完全に別物になるので、本番データに一切触れずに検証できる
+  (2026-09-10 に実ブラウザで独立を確認)。
+- `.dev-profile/` は `.gitignore` 済み(Git 管理外)。初回は空。
+- ダミーデータの投入: 開発用プロファイルの DevTools コンソールで
+  `fetch('/dev-seed.js').then(r => r.text()).then(eval)` を実行(または `dev-seed.js` の中身を貼り付け)。
+  予定・タスク・設定を「[ダミー]…」で全置換する(localhost 以外 / 確認ダイアログでガード)。
+- 本番用 `OneBoard起動.bat` は**変更しない**(既定プロファイル = 本番データ)。
 
 ## git の著者情報(2026-09-07 に統一済み)
 
