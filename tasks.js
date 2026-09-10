@@ -12,7 +12,10 @@
  *        スマホは閲覧専用)。
  *  - 3d: 記載パターン(テンプレート)。oneboard.taskTemplates.v1。タスク作成時に本文の雛形を
  *        選んで「本文にコピー」。パターンは**携帯同期の対象外**(配信ペイロードに載せない)。
- * 一括移動・移動ルール(3f) / カレンダー連携(3g) はまだ含めない。
+ *  - 3f: 移動ルール(moveRule)+「今日のタスクを移動」ボタン。今日区分のタスクを
+ *        ルールに従って次の期限日へ一括で進める。moveRule は tasks の 1 フィールドなので
+ *        携帯同期にそのまま乗る(追加実装なし)。
+ * カレンダー連携(3g) はまだ含めない。
  *
  * 保存は localStorage キー "oneboard.tasks.v1" のみ。タスク自体が外部へ送られるのは
  * 3c の配信データ経路だけ(app.js が buildExportPayload() に tasks を載せて暗号化 → publish。
@@ -35,6 +38,99 @@ function taskUid() {
   return 't-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 }
 
+/* ---------- 移動ルール(フェーズ3f) ---------- *
+ * moveRule: null | {
+ *   type: 'nextDay' | 'weekly' | 'monthlyDay' | 'interval',
+ *   weekday?: 0-6,   // weekly
+ *   day?:     1-31,  // monthlyDay
+ *   days?:    1-365, // interval
+ *   holidayAdjust: 'forward' | 'backward'   // 土日祝に当たったときの調整方向
+ * }
+ */
+const MOVE_RULE_TYPES = ['nextDay', 'weekly', 'monthlyDay', 'interval'];
+
+// type ごとの妥当な既定調整方向。
+function defaultHolidayAdjust(type) {
+  return type === 'monthlyDay' ? 'backward' : 'forward';
+}
+
+// フォーム/保存データから moveRule を正規化(不正なら null)。
+function normalizeMoveRule(mr) {
+  if (!mr || typeof mr !== 'object' || MOVE_RULE_TYPES.indexOf(mr.type) < 0) return null;
+  const type = mr.type;
+  const adj = (mr.holidayAdjust === 'forward' || mr.holidayAdjust === 'backward')
+    ? mr.holidayAdjust
+    : defaultHolidayAdjust(type);
+  if (type === 'nextDay') return { type, holidayAdjust: adj };
+  if (type === 'weekly') {
+    const wd = clampInt(mr.weekday, 0, 6, null);
+    return wd === null ? null : { type, weekday: wd, holidayAdjust: adj };
+  }
+  if (type === 'monthlyDay') {
+    const d = clampInt(mr.day, 1, 31, null);
+    return d === null ? null : { type, day: d, holidayAdjust: adj };
+  }
+  const n = clampInt(mr.days, 1, 365, null); // interval
+  return n === null ? null : { type, days: n, holidayAdjust: adj };
+}
+
+// 移動ルールの短い説明(一覧・フォームのヒント用)。
+function describeMoveRule(mr) {
+  if (!mr) return '';
+  const wd = ['日', '月', '火', '水', '木', '金', '土'];
+  const tail = mr.holidayAdjust === 'backward' ? '(土日祝は前の営業日)' : '(土日祝は次の営業日)';
+  if (mr.type === 'nextDay') return '翌日へ ' + tail;
+  if (mr.type === 'weekly') return `次の${wd[mr.weekday]}曜へ ` + tail;
+  if (mr.type === 'monthlyDay') return `翌月${mr.day}日へ ` + tail;
+  if (mr.type === 'interval') return `${mr.days}日後へ ` + tail;
+  return '';
+}
+
+/**
+ * moveRule に従って currentDue の次の期限日を返す("YYYY-MM-DD")。
+ * isHoliday(ymd) -> bool(省略時は Holidays.nameOf を使う)。土日 + 祝日を「休み」とみなし、
+ * holidayAdjust: 'forward' は次の営業日まで +1 日、'backward' は前の営業日まで -1 日。
+ */
+function computeNextDue(currentDue, moveRule, isHoliday) {
+  const mr = normalizeMoveRule(moveRule);
+  if (!mr || !/^\d{4}-\d{2}-\d{2}$/.test(currentDue || '')) return currentDue;
+
+  const isHol = typeof isHoliday === 'function'
+    ? isHoliday
+    : (ymd) => (typeof Holidays !== 'undefined' && !!Holidays.nameOf(ymd));
+
+  const base = fromYmd(currentDue);
+  let target;
+
+  if (mr.type === 'nextDay') {
+    target = new Date(base);
+    target.setDate(target.getDate() + 1);
+  } else if (mr.type === 'interval') {
+    target = new Date(base);
+    target.setDate(target.getDate() + mr.days);
+  } else if (mr.type === 'weekly') {
+    // 次の指定曜日。currentDue が同じ曜日なら翌週。
+    let diff = (mr.weekday - base.getDay() + 7) % 7;
+    if (diff === 0) diff = 7;
+    target = new Date(base);
+    target.setDate(target.getDate() + diff);
+  } else { // monthlyDay: 翌月の指定日(その月に無ければ月末)
+    const y = base.getFullYear();
+    const m = base.getMonth() + 1; // 翌月(0-index)
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    target = new Date(y, m, Math.min(mr.day, lastDay));
+  }
+
+  // 土日祝の調整
+  const step = mr.holidayAdjust === 'backward' ? -1 : 1;
+  for (let guard = 0; guard < 400; guard++) {
+    const dow = target.getDay();
+    if (dow !== 0 && dow !== 6 && !isHol(toYmd(target))) break;
+    target.setDate(target.getDate() + step);
+  }
+  return toYmd(target);
+}
+
 /* ---------- タスクストア(localStorage) ---------- */
 const TaskStore = (() => {
   let tasks = [];
@@ -48,8 +144,8 @@ const TaskStore = (() => {
    *   inProgress,     // true/false。true なら一覧で赤字表示
    *   completed,      // true/false(既定 false)。true は区分判定の対象外 → 「完了済み」へ
    *   completedAt,    // 完了日時(ISO)| null
-   *   moveRule,       // ★将来の一括移動用の予約フィールド(現状は常に null)
-   *   templateName,   // ★将来のテンプレート用の予約フィールド(現状は常に null)
+   *   moveRule,       // 3f: 一括移動ルール。null または normalizeMoveRule() の形
+   *   templateName,   // 3d: タスク作成時に選んだ記載パターン名(自由記載なら null)
    *   body,           // 本文(自由記述)
    *   createdAt, updatedAt
    * }
@@ -65,7 +161,7 @@ const TaskStore = (() => {
       inProgress: src.inProgress === true,
       completed,
       completedAt: completed && typeof src.completedAt === 'string' ? src.completedAt : null,
-      moveRule: src.moveRule ?? null,
+      moveRule: normalizeMoveRule(src.moveRule),
       templateName: src.templateName ?? null,
       body: typeof src.body === 'string' ? src.body : '',
       createdAt: src.createdAt || now,
@@ -128,6 +224,16 @@ const TaskStore = (() => {
     return t;
   }
 
+  // 期限日だけ差し替える(一括移動用)。
+  function setDue(id, ymd) {
+    const t = tasks.find((x) => x.id === id);
+    if (!t) return null;
+    t.due = /^\d{4}-\d{2}-\d{2}$/.test(ymd || '') ? ymd : null;
+    t.updatedAt = new Date().toISOString();
+    persist();
+    return t;
+  }
+
   // 同期用: 配信データ(または取り込みファイル)の tasks で全置換。
   function replaceAll(list) {
     tasks = Array.isArray(list) ? list.map(normalize) : [];
@@ -135,7 +241,7 @@ const TaskStore = (() => {
     return tasks.length;
   }
 
-  return { load, all, get, upsert, remove, setCompleted, replaceAll };
+  return { load, all, get, upsert, remove, setCompleted, setDue, replaceAll };
 })();
 
 /* ---------- 記載パターン(テンプレート)ストア(localStorage) ---------- *
@@ -448,10 +554,12 @@ function buildTaskRow(t) {
   if (t.inProgress) bits.push('進行中');
   if (t.due) bits.push('期限 ' + formatDue(t.due));
   if (t.body) bits.push('📝'); // 本文ありの目印(開くと読める)
+  if (normalizeMoveRule(t.moveRule)) bits.push('⇢'); // 移動ルールあり
   if (bits.length) {
     const meta = document.createElement('span');
     meta.className = 'task-meta';
     meta.textContent = bits.join(' ・ ');
+    meta.title = normalizeMoveRule(t.moveRule) ? '移動ルール: ' + describeMoveRule(normalizeMoveRule(t.moveRule)) : '';
     li.appendChild(meta);
   }
 
@@ -477,6 +585,67 @@ function bindTaskForm() {
   document.getElementById('task-form').addEventListener('submit', onSubmitTask);
   document.getElementById('task-delete-btn').addEventListener('click', onDeleteTask);
   document.getElementById('task-template-copy').addEventListener('click', onCopyTemplateToBody);
+
+  // 3f: 移動ルール欄
+  const mdSel = document.getElementById('task-move-weekday');
+  for (let i = 0; i <= 6; i++) {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = ['日', '月', '火', '水', '木', '金', '土'][i] + '曜';
+    mdSel.appendChild(o);
+  }
+  const daySel = document.getElementById('task-move-day');
+  for (let i = 1; i <= 31; i++) {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = i + '日';
+    daySel.appendChild(o);
+  }
+  document.getElementById('task-move-type').addEventListener('change', () => syncMoveRuleVisibility(true));
+
+  // 3f: 一括移動
+  document.getElementById('task-move-btn').addEventListener('click', onBulkMove);
+  document.getElementById('move-proceed-btn').addEventListener('click', () => {
+    closeModal('move-modal');
+    const list = pendingBulkMove;
+    pendingBulkMove = [];
+    doBulkMove(list);
+  });
+}
+
+// 移動ルールの種類に応じてパラメータ欄・調整欄を出し分ける。
+// resetAdjust=true のときは種類の既定調整方向をセットする。
+function syncMoveRuleVisibility(resetAdjust) {
+  const type = document.getElementById('task-move-type').value;
+  document.getElementById('task-move-weekly-row').hidden = type !== 'weekly';
+  document.getElementById('task-move-monthday-row').hidden = type !== 'monthlyDay';
+  document.getElementById('task-move-interval-row').hidden = type !== 'interval';
+  document.getElementById('task-move-holiday-row').hidden = !type;
+  document.getElementById('task-move-hint').hidden = !type;
+  if (resetAdjust && type) {
+    document.getElementById('task-move-holiday').value = defaultHolidayAdjust(type);
+  }
+}
+
+function fillMoveRuleForm(mr) {
+  const r = normalizeMoveRule(mr);
+  document.getElementById('task-move-type').value = r ? r.type : '';
+  document.getElementById('task-move-weekday').value = String(r && r.type === 'weekly' ? r.weekday : 1);
+  document.getElementById('task-move-day').value = String(r && r.type === 'monthlyDay' ? r.day : 25);
+  document.getElementById('task-move-days').value = String(r && r.type === 'interval' ? r.days : 7);
+  document.getElementById('task-move-holiday').value =
+    r ? r.holidayAdjust : defaultHolidayAdjust('nextDay');
+  syncMoveRuleVisibility(false);
+}
+
+function readMoveRuleFromForm() {
+  const type = document.getElementById('task-move-type').value;
+  if (!type) return null;
+  const mr = { type, holidayAdjust: document.getElementById('task-move-holiday').value };
+  if (type === 'weekly') mr.weekday = parseInt(document.getElementById('task-move-weekday').value, 10);
+  else if (type === 'monthlyDay') mr.day = parseInt(document.getElementById('task-move-day').value, 10);
+  else if (type === 'interval') mr.days = parseInt(document.getElementById('task-move-days').value, 10);
+  return normalizeMoveRule(mr);
 }
 
 // #task-template に「(自由記載)」+ 登録済みパターン名を並べる。
@@ -535,8 +704,11 @@ function openTaskModal(task) {
   document.getElementById('task-inprogress').checked = task ? task.inProgress : false;
   document.getElementById('task-body').value = task ? task.body : '';
   populateTemplateSelect(task ? task.templateName : '');
+  fillMoveRuleForm(task ? task.moveRule : null);
 
-  ['task-title', 'task-due', 'task-inprogress', 'task-body', 'task-template'].forEach((id) => {
+  ['task-title', 'task-due', 'task-inprogress', 'task-body', 'task-template',
+    'task-move-type', 'task-move-weekday', 'task-move-day', 'task-move-days', 'task-move-holiday',
+  ].forEach((id) => {
     document.getElementById(id).disabled = readOnly;
   });
   document.getElementById('task-delete-btn').hidden = readOnly || !task;
@@ -567,8 +739,8 @@ function onSubmitTask(e) {
     completedAt: existing ? existing.completedAt : null,
     // 3d: プルダウンで選んだパターン名(「(自由記載)」なら null)。
     templateName: document.getElementById('task-template').value || null,
-    // 予約フィールド: 今回は常に null。既存値があれば維持する。
-    moveRule: existing ? existing.moveRule : null,
+    // 3f: 移動ルール(「設定しない」なら null)。
+    moveRule: readMoveRuleFromForm(),
   });
   closeModal('task-modal');
   renderTaskList();
@@ -585,6 +757,62 @@ function onDeleteTask() {
     renderTaskList();
     scheduleTaskSync();
   }
+}
+
+/* ---------- 一括移動(フェーズ3f) ---------- */
+let pendingBulkMove = [];
+
+// 「今日のタスクを移動」: 今日区分のタスクを moveRule に従って次の期限日へ進める。
+function onBulkMove() {
+  if (IS_VIEWER) return;
+  const b = computeTaskBoundaries();
+  // bucketOf は completed / inProgress を先に別区分へ回すので、'today' = 未完了・非進行中・期限=今日。
+  const todays = TaskStore.all().filter((t) => bucketOf(t, b) === 'today');
+  if (todays.length === 0) {
+    alert('「今日」のタスクはありません。');
+    return;
+  }
+  const withRule = todays.filter((t) => normalizeMoveRule(t.moveRule));
+  const withoutRule = todays.filter((t) => !normalizeMoveRule(t.moveRule));
+
+  if (withoutRule.length === 0) {
+    doBulkMove(withRule);
+    return;
+  }
+
+  // 移動ルール未設定のタスクを一覧表示してから続行を促す。
+  pendingBulkMove = withRule;
+  document.getElementById('move-modal-text').textContent =
+    `次の ${withoutRule.length} 件は移動ルールが無いため、今日のまま残ります`
+    + `（ルール設定済みの ${withRule.length} 件だけを移動します）:`;
+  const ul = document.getElementById('move-skip-list');
+  ul.innerHTML = '';
+  for (const t of withoutRule) {
+    const li = document.createElement('li');
+    li.className = 'day-event';
+    li.textContent = t.title || '(件名なし)';
+    ul.appendChild(li);
+  }
+  openModal('move-modal');
+}
+
+function doBulkMove(list) {
+  const isHol = (ymd) => (typeof Holidays !== 'undefined' && !!Holidays.nameOf(ymd));
+  let moved = 0;
+  for (const t of list || []) {
+    const next = computeNextDue(t.due, t.moveRule, isHol);
+    if (next && next !== t.due) {
+      TaskStore.setDue(t.id, next);
+      moved += 1;
+    }
+  }
+  if (moved > 0) {
+    renderTaskList();
+    scheduleTaskSync();
+  }
+  alert(moved > 0
+    ? `${moved} 件のタスクを移動しました。`
+    : '移動できるタスクはありませんでした。');
 }
 
 /* ---------- 記載パターン(テンプレート)管理モーダル ---------- */
