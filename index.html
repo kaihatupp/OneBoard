@@ -48,6 +48,7 @@
 
     <section id="view-tasks" hidden>
       <div class="tasks-head">
+        <button type="button" id="task-move-btn" class="ghost small">今日のタスクを移動</button>
         <button type="button" id="template-manage-btn" class="ghost small">パターン管理</button>
         <button type="button" id="task-add-btn" class="primary">＋ タスクを追加</button>
       </div>
@@ -382,6 +383,39 @@
             </p>
           </div>
 
+          <label class="field" id="task-move-type-row">
+            <span>移動ルール(一括移動用)</span>
+            <select id="task-move-type">
+              <option value="">設定しない</option>
+              <option value="nextDay">翌日へ</option>
+              <option value="weekly">次の指定曜日へ</option>
+              <option value="monthlyDay">翌月の指定日へ</option>
+              <option value="interval">一定日数後へ</option>
+            </select>
+          </label>
+          <label class="field move-param-row" id="task-move-weekly-row" hidden>
+            <span>曜日</span>
+            <select id="task-move-weekday"></select>
+          </label>
+          <label class="field move-param-row" id="task-move-monthday-row" hidden>
+            <span>日</span>
+            <select id="task-move-day"></select>
+          </label>
+          <label class="field move-param-row" id="task-move-interval-row" hidden>
+            <span>日数</span>
+            <input type="number" id="task-move-days" min="1" max="365" value="7">
+          </label>
+          <label class="field" id="task-move-holiday-row" hidden>
+            <span>土日祝に当たったら</span>
+            <select id="task-move-holiday">
+              <option value="forward">次の営業日へ</option>
+              <option value="backward">前の営業日へ</option>
+            </select>
+          </label>
+          <p class="hint" id="task-move-hint" hidden>
+            「今日のタスクを移動」ボタンで、このルールに従って期限日を次へ進めます。
+          </p>
+
           <label class="field">
             <span>本文</span>
             <textarea id="task-body" rows="14" maxlength="5000"></textarea>
@@ -434,6 +468,24 @@
       </div>
       <div class="modal-foot">
         <button type="button" class="ghost" data-close="template-modal">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 一括移動の確認(フェーズ3f。移動ルール未設定のタスクがあるときだけ表示) -->
+  <div class="modal-overlay" id="move-modal" hidden>
+    <div class="modal narrow" role="dialog" aria-modal="true" aria-labelledby="move-modal-title">
+      <div class="modal-head">
+        <h2 id="move-modal-title">今日のタスクを移動</h2>
+        <button type="button" class="modal-close" data-close="move-modal" aria-label="閉じる">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="move-modal-text"></p>
+        <ul id="move-skip-list" class="day-event-list"></ul>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" data-close="move-modal">キャンセル</button>
+        <button type="button" class="primary" id="move-proceed-btn">続行</button>
       </div>
     </div>
   </div>

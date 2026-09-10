@@ -412,6 +412,7 @@ main {
 .field input[type="text"],
 .field input[type="date"],
 .field input[type="time"],
+.field input[type="number"],
 .field select,
 .field textarea {
   border: 1px solid var(--border);
@@ -602,6 +603,7 @@ body.tasks-view #add-event-btn { display: none !important; }
 /* タスク一覧 */
 .tasks-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
@@ -710,6 +712,19 @@ body.viewer-mode .task-check { display: none !important; }
 #task-template-row { margin-bottom: 12px; }
 /* スマホ(閲覧専用)ではパターン欄は出さない */
 body.viewer-mode #task-template-row { display: none !important; }
+
+/* 3f: 移動ルール欄 */
+.move-param-row {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  margin-left: 2px;
+}
+#task-move-days { width: 120px; }
+#task-move-hint { margin-bottom: 12px; }
+body.viewer-mode #task-move-type-row,
+body.viewer-mode .move-param-row,
+body.viewer-mode #task-move-holiday-row,
+body.viewer-mode #task-move-hint { display: none !important; }
 
 #template-form .field-group-title {
   margin: 0 0 8px;
