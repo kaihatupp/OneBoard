@@ -748,14 +748,24 @@ function onSubmitTask(e) {
     return;
   }
   const existing = editingTaskId ? TaskStore.get(editingTaskId) : null;
+  const wasInProgress = existing ? existing.inProgress === true : false;
+  const nextInProgress = document.getElementById('task-inprogress').checked;
+  // 完了状態はフォームで触らないので既存値を維持する(= 保存操作単体で完了になることはない)。
+  const nextCompleted = existing ? existing.completed : false;
+  const becomingCompletedNow = !!existing && !existing.completed && nextCompleted;
+  let due = document.getElementById('task-due').value || null;
+  // 進行中を解除する操作で、かつ同時に完了になるのでなければ、期限を当日へ戻す
+  // (「今日」区分に戻り、移動ルールのサイクルを再開できるようにする)。
+  if (wasInProgress && !nextInProgress && !becomingCompletedNow) {
+    due = toYmd(new Date());
+  }
   TaskStore.upsert({
     id: editingTaskId || undefined,
     title,
-    due: document.getElementById('task-due').value || null,
-    inProgress: document.getElementById('task-inprogress').checked,
+    due,
+    inProgress: nextInProgress,
     body: document.getElementById('task-body').value,
-    // 完了状態はフォームで触らないので既存値を維持する。
-    completed: existing ? existing.completed : false,
+    completed: nextCompleted,
     completedAt: existing ? existing.completedAt : null,
     // 3d: プルダウンで選んだパターン名(「(自由記載)」なら null)。
     templateName: document.getElementById('task-template').value || null,
