@@ -339,6 +339,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     フォームの出し分けと既定調整方向、保存・再オープンの往復、
     一括移動(未設定タスクの警告 → 続行でルール済みのみ移動、完了/進行中/今日以外は不変、
     全件ルールありなら直接実行、今日タスク 0 件のメッセージ、スマホでは無効)。
+- **フェーズ3f・追記(実装済み・2026-09-11): 進行中解除時に期限を当日へ更新**
+  - タスクの `inProgress` が `true → false` に変わる保存操作で、かつ**同時に完了になるのではない**場合、
+    `due` を当日の日付へ更新する(以前の `due` が過去でも未来でも上書き)。「今日」区分に戻り、
+    `moveRule` のサイクルを再開できるようにするための挙動。
+  - 実装は `onSubmitTask()`(`tasks.js`)のみ。保存直前に `existing.inProgress`(変更前)と
+    フォームのチェック状態(変更後)を比較し、`true→false` かつ「完了へ同時遷移」でなければ
+    `due = toYmd(new Date())` を使う。完了状態は本フォームでは変更されないため、通常は
+    「完了への同時遷移」は起こらない(将来 completed をこのフォームで扱うようになった場合に
+    備えたガード)。
+  - 一覧の完了チェックボックス(`buildTaskRow`)は `completed` だけを操作し `inProgress` には
+    触れないため、現状 `inProgress` を変更できる経路は編集フォームの保存のみ。
+  - `moveRule` / `sortTasks()` / `bucketOf()` は変更なし。
+  - 変更ファイル: `tasks.js` / `sw.js`(v16)。
+  - 稼働確認済み(2026-09-11、ヘッドレス Chrome・開発用ダミーデータ): 期限切れ/未来期限どちらの
+    進行中タスクも解除で当日に更新、進行中のまま保存では期限不変、完了チェック(一覧)は
+    `inProgress` に影響しないこと、当日へ戻した `moveRule` 付きタスクが「今日のタスクを移動」で
+    正しく次回日へ進む(金曜 nextDay → 月曜)ことを確認。
 - **フェーズ3・残り(未実装)**
   - 3g: カレンダー連携表示(重要タスクとカレンダーの連動。イベントの `linkedTaskId` を使う)
 - **将来フェーズ(構想・未着手)**
@@ -521,7 +538,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v15`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v16`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
