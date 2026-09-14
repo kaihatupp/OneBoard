@@ -45,6 +45,7 @@ const SyncPrefs = (() => {
   let data = {
     passphrase: '', lastPulledAt: null, lastPublishedAt: null,
     autoPublish: true, // PC: 予定を変えたら自動で「スマホに反映」(既定オン。データ画面で停止可)
+    pendingPublish: false, // 自動反映のデバウンス待ち/送信中に閉じられて未送信のままの変更があるか
   };
 
   function load() {
@@ -213,6 +214,9 @@ async function init() {
 
   Settings.load();
   SyncPrefs.load();
+  // 前回、デバウンス待ち/送信中にタブが閉じられて未送信のまま残った変更があれば、
+  // 起動時に自動反映を再予約する(ヘッダーの表示だけでは気づけないため)。
+  if (CAN_PUBLISH && SyncPrefs.get('pendingPublish')) scheduleAutoPublish();
   InboxStore.load();
   if (!IS_VIEWER) InboxAck.load();
   EventStore.load();
@@ -309,6 +313,7 @@ function bindDataModal() {
     } else {
       if (autoPublishTimer) { clearTimeout(autoPublishTimer); autoPublishTimer = null; }
       publishDirty = false; // 自動オフ中は「未反映」表示を持ち越さない
+      SyncPrefs.set({ pendingPublish: false });
     }
     updateFreshness();
   });
@@ -419,7 +424,7 @@ async function onPublish() {
   try {
     const r = await sendPublish(pass);
     if (r.ok) {
-      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString() });
+      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString(), pendingPublish: false });
       const when = r.at ? fmtStamp(r.at) : fmtStamp(new Date().toISOString());
       setDataStatus(r.pushed === false
         ? `${r.note || '変更なし'}(${when})`
@@ -452,6 +457,9 @@ function autoPublishEnabled() {
 function scheduleAutoPublish() {
   if (!autoPublishEnabled()) return;
   publishDirty = true;
+  // デバウンス待ち中(タイマー満了前)にタブが閉じられても次回起動時に再送できるよう、
+  // 「未送信の変更がある」ことを localStorage にも残す(autoPublishTimer 等はメモリ上のみで消える)。
+  SyncPrefs.set({ pendingPublish: true });
   if (autoPublishTimer) clearTimeout(autoPublishTimer);
   autoPublishTimer = setTimeout(runAutoPublish, AUTO_PUBLISH_DELAY_MS);
   updateFreshness();
@@ -467,7 +475,7 @@ async function runAutoPublish() {
   try {
     const r = await sendPublish(SyncPrefs.get('passphrase'));
     if (r && r.ok) {
-      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString() });
+      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString(), pendingPublish: false });
       autoPublishError = null;
     } else {
       autoPublishError = (r && r.message) || '反映に失敗';
