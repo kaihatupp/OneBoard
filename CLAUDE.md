@@ -169,9 +169,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - PC のヘッダー `#data-freshness` に状態表示:「未反映の変更あり」/「スマホに反映中…」/
     「スマホに反映済み M/D H:M」/「自動反映できず(理由)」。
   - 手動「スマホに反映」ボタンは残す(即時反映したいとき / 自動オフのとき)。
-  - 小さな窓: 変更直後(デバウンス満了前)にタブを閉じると、その 1 回は飛ばない。
-    次に何か編集するか、手動ボタンで反映される。
+  - **デバウンス待ち中の未送信変更の永続化(2026-09-14 修正)**: 以前は「未送信の変更がある」
+    ことをメモリ上の変数(`autoPublishTimer` / `publishDirty`)だけで管理していたため、
+    タイマー満了(5秒)前にタブが閉じられる/ブラウザが落ちる等でページが再読み込みされると、
+    その変更は**二度と自動反映されない**まま消えていた。しかもヘッダーの `#data-freshness` は
+    最後に成功した `lastPublishedAt`(= 古い日時)をそのまま表示し続けるため、外見上は
+    「反映済み」に見えて気づけなかった(2026-09-14、タスクの「今日のタスクを移動」実行後に
+    スマホへ反映されない不具合として発覚。原因は自動反映そのものではなく、この永続化漏れ)。
+    - 修正: `oneboard.sync.v1` に `pendingPublish` を追加。`scheduleAutoPublish()` は
+      デバウンスタイマーを張るのと同時に `pendingPublish:true` を**同期的に** localStorage へ
+      書く。`runAutoPublish()` / 手動「スマホに反映」が成功したら `pendingPublish:false` に戻す
+      (失敗時はエラー表示のまま残し、次の編集か手動ボタンで再送)。自動反映をオフにしたときも
+      持ち越さないようクリアする。
+    - `init()` で `CAN_PUBLISH` かつ `pendingPublish===true` を検出したら起動時に
+      `scheduleAutoPublish()` を呼び直し、次回起動時に取りこぼしなく再送する。
+  - 小さな窓(上記修正で解消): 変更直後(デバウンス満了前)にタブを閉じても、次回起動時に
+    自動で再送される(以前は「その 1 回は飛ばない」仕様だったが、気づきにくいため修正)。
   - 稼働確認済み(2026-09-09): PC で予定作成 → 何もせずスマホに反映されることを確認。
+  - 稼働確認済み(2026-09-14、ヘッドレス Chrome・`sendPublish` をスタブ化): デバウンス予約直後に
+    `pendingPublish` が即 `true` になること、タイマー満了前のリロードでも起動時に自動で
+    再送予約され実際に送信されること、成功後 `pendingPublish` が `false` に戻ることを確認。
 - **フェーズ2b・捕捉インボックス(実装済み・A3 の手動受け渡し版)**
   - スマホ: ヘッダーの 📋 →「あとで入力」モーダルでメモを追加(`oneboard.inbox.v1`、
     `[{id,text,createdAt}]`)。**カレンダーには登録しない**。件数はヘッダーのバッジに出る。
@@ -466,7 +483,9 @@ OneBoard-app-dev/
 //   { passphrase,               // 暗号化パスフレーズ(この端末にだけ保存。外部送信なし)
 //     lastPulledAt,             // スマホが最後に取り込んだ時刻(ISO)
 //     lastPublishedAt,          // 取り込んだデータの publishedAt(= PC が書き出した時刻)
-//     autoPublish }             // PC: 保存のたびの自動反映。既定 true。データ画面で切替
+//     autoPublish,              // PC: 保存のたびの自動反映。既定 true。データ画面で切替
+//     pendingPublish }          // PC: デバウンス待ち/送信中の未送信変更があるか(2026-09-14 追加。
+//                               //   タブが閉じられても取りこぼさず起動時に再送するための永続フラグ)
 
 // 捕捉インボックス: localStorage キー "oneboard.inbox.v1" … app.js の InboxStore
 //   [ { id, text, createdAt, receivedAt? } ]   // receivedAt は PC が取り込んだ分だけ付く
@@ -538,7 +557,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v16`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v17`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
