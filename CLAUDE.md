@@ -316,10 +316,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - パターン管理: タスク画面の「パターン管理」ボタン → `#template-modal`(上にフォーム、下に一覧。
     一覧クリックでフォームに読み込み、「新規」でリセット、削除は確認ダイアログ)。
   - タスクフォーム: 「パターン」プルダウン(`#task-template`。`(自由記載)`=`""` + 登録名)+
-    「本文にコピー」ボタン(`onCopyTemplateToBody`)。**選ぶだけでは本文は変わらない**。
-    「本文にコピー」で `body` を本文欄へ(本文が空でなければ上書き confirm)。コピー後は自由編集。
-    選択中の名前は保存時に `templateName` に記録(`(自由記載)` は `null`)。削除済みパターン名も
-    option として保持し、保存で失われない。
+    「件名・本文にコピー」ボタン(`onCopyTemplateToBody`)。**選ぶだけでは件名・本文とも変わらない**。
+    「パターン名 = タスクの件名」という前提のため、押すと `title` にパターン名を、`body` に
+    本文の雛形をまとめてコピーする(2026-09-14: 従来は本文のみコピーだったのを件名も対象に変更)。
+    件名・本文のいずれかに既存の内容があれば(パターン名と同じ件名は除く)上書き confirm を出す。
+    コピー後は自由編集。選択中の名前は保存時に `templateName` に記録(`(自由記載)` は `null`)。
+    削除済みパターン名も option として保持し、保存で失われない。
   - スマホ(`IS_VIEWER`): 「パターン管理」ボタンとタスクフォームの「パターン」欄は非表示。
   - 含めない: `:` で終わる行の個別入力欄化(必要になれば別フェーズ)。
   - 変更ファイル: `tasks.js` / `index.html` / `style.css` / `sw.js`(v12)。app.js は変更なし。
@@ -327,6 +329,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     パターンの追加・編集(id/createdAt 保持)・削除(確認)、一覧の並び、
     プルダウンの中身、「本文にコピー」(空→そのままコピー / 非空→上書き確認)、
     選ぶだけでは本文不変、`templateName` の記録と復元、削除済み名の保持、スマホでの無効化。
+  - 稼働確認済み(2026-09-14、ヘッドレス Chrome): 「件名・本文にコピー」で件名にパターン名・
+    本文に雛形が入ること、件名・本文とも空なら confirm なし、既存の件名(パターン名と異なる)・
+    本文があれば上書き confirm、件名が既にパターン名と同じなら confirm なしで再コピー、
+    保存後 `templateName` と件名がどちらもパターン名になっていることを確認。
 - **フェーズ3f(実装済み): 移動ルール + 一括移動ボタン**
   - Outlook で手動でやっている「今日のタスクを翌日等へ動かす」作業をボタン1つに。
   - `moveRule`(タスクのフィールド。`normalizeMoveRule()` で正規化):
@@ -557,7 +563,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v17`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v18`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
