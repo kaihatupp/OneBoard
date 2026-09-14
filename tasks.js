@@ -690,6 +690,8 @@ function populateTemplateSelect(current) {
 }
 
 // 「本文にコピー」: 選択中パターンの body を本文欄へ。本文が空でなければ上書き確認。
+// パターン名 = タスクの件名として扱うため、件名にはパターン名を、
+// 本文には雛形をまとめてコピーする(選ぶだけでは変えない。押したときだけ反映)。
 function onCopyTemplateToBody() {
   if (IS_VIEWER) return;
   const name = document.getElementById('task-template').value;
@@ -702,11 +704,15 @@ function onCopyTemplateToBody() {
     alert(`「${name}」は見つかりませんでした(削除された可能性)。`);
     return;
   }
+  const titleEl = document.getElementById('task-title');
   const bodyEl = document.getElementById('task-body');
-  if (bodyEl.value.trim()
-      && !window.confirm('本文欄の内容をパターンの雛形で上書きします。よろしいですか?')) {
+  const willOverwriteTitle = titleEl.value.trim() && titleEl.value.trim() !== tpl.name;
+  const willOverwriteBody = !!bodyEl.value.trim();
+  if ((willOverwriteTitle || willOverwriteBody)
+      && !window.confirm('件名・本文をパターンの内容で上書きします。よろしいですか?')) {
     return;
   }
+  titleEl.value = tpl.name;
   bodyEl.value = tpl.body;
   bodyEl.focus();
 }
