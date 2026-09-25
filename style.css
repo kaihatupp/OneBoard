@@ -669,6 +669,8 @@ body.tasks-view #add-event-btn { display: none !important; }
   font-weight: 500;
 }
 .task-item.is-done .task-meta { color: var(--muted); }
+/* 3f追記: 個別移動ボタン(行の右端) */
+.task-item .task-move-one-btn { flex-shrink: 0; align-self: center; }
 /* スマホ(閲覧専用)ではチェックボックス・タスク追加を出さない */
 body.viewer-mode .tasks-head,
 body.viewer-mode .task-check { display: none !important; }

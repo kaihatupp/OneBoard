@@ -583,6 +583,21 @@ function buildTaskRow(t) {
     li.appendChild(meta);
   }
 
+  // 個別移動(3f追記): 区分に関係なく、このタスク1件だけを移動ルールに従って進められる。
+  // 進行中・完了済みには出さない(進行中は移動ルールを無視する既存方針と合わせる)。
+  if (!IS_VIEWER && !t.completed && !t.inProgress && normalizeMoveRule(t.moveRule)) {
+    const moveBtn = document.createElement('button');
+    moveBtn.type = 'button';
+    moveBtn.className = 'ghost small task-move-one-btn';
+    moveBtn.textContent = '移動';
+    moveBtn.title = '移動ルールに従って次回日へ移動します';
+    moveBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onMoveOneTask(t.id);
+    });
+    li.appendChild(moveBtn);
+  }
+
   const open = () => openTaskModal(t);
   li.addEventListener('click', open);
   li.addEventListener('keydown', (e) => {
@@ -590,6 +605,24 @@ function buildTaskRow(t) {
   });
 
   return li;
+}
+
+// 個別移動: 一括移動(今日区分のみ)とは独立に、いつでもこの1件だけを
+// 移動ルールに従って次回日へ進める。計算は computeNextDue() を共用。
+function onMoveOneTask(id) {
+  if (IS_VIEWER) return;
+  const t = TaskStore.get(id);
+  if (!t) return;
+  const isHol = (ymd) => (typeof Holidays !== 'undefined' && !!Holidays.nameOf(ymd));
+  const next = computeNextDue(t.due, t.moveRule, isHol);
+  if (!next || next === t.due) {
+    alert('移動できませんでした(期限日が未設定か、移動先が変わりませんでした)。');
+    return;
+  }
+  TaskStore.setDue(id, next);
+  renderTaskList();
+  scheduleTaskSync();
+  alert(`次回日: ${formatDue(next)} に移動しました。`);
 }
 
 // タスク変更を PC の自動反映キューに載せる(app.js の関数。スマホ / 未設定時は no-op)。
