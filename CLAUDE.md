@@ -353,6 +353,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     `computeNextDue()` で `due` を更新(1件ずつの確認なし)。完了後「N 件移動しました」。
   - 未設定タスクは `due` を変えない(今日区分に残り続ける)。
   - 一覧行の meta に移動ルールありの目印「⇢」(ホバーで説明)。
+  - **個別移動ボタン(2026-09-25 追記)**: 一括移動(「今日」区分のみが対象)とは別に、
+    タスク1件だけを区分に関係なくいつでも移動ルール通り次回日へ進められる「移動」ボタンを
+    一覧行に追加。表示条件は `moveRule` 設定済み **かつ** `completed !== true` **かつ**
+    `inProgress !== true`(3条件のいずれか欠けても非表示。進行中は移動ルールを無視する
+    既存方針と合わせて出さない)。押すと確認ダイアログなしで即実行し、`computeNextDue()`
+    (一括移動と共用、重複実装なし)で `due` を更新して `alert()` で
+    「次回日: M/D(曜) に移動しました。」を表示。区分(`bucketOf()`)は `due` 変更に伴い
+    自動再計算されるだけで、`bucketOf()` / `sortTasks()` 自体は変更なし。
+    一括移動(「今日」区分のみ対象という条件)は変更なし・影響なし。
+  - 実装: `onMoveOneTask(id)`(`tasks.js`)。`buildTaskRow()` に `.task-move-one-btn` を追加。
+  - 変更ファイル: `tasks.js` / `style.css` / `sw.js`(v19)。
+  - 稼働確認済み(2026-09-25、ヘッドレス Chrome・開発用ダミーデータ): 「今日」以外の区分
+    (来週/来月)にあるルール設定済みタスクで個別ボタンが即座に次回日へ移動すること、
+    進行中・完了済み・ルール未設定のタスクにはボタンが出ないこと、条件を満たすタスクには
+    ボタンが出ること、一括移動が「今日」区分のみを対象とする既存動作に影響が無いこと
+    (今日のタスクは移動・来月のタスクは不変)を確認。
   - **携帯同期は追加実装なし**(`moveRule` は `tasks[]` の 1 フィールドとして自然に配信・復元される)。
   - `bucketOf()` / `sortTasks()` は変更なし。app.js も変更なし。
   - 変更ファイル: `tasks.js` / `index.html` / `style.css` / `sw.js`(v13)。
@@ -563,7 +579,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v18`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v19`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
