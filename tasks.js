@@ -441,6 +441,7 @@ function initTasks() {
   bindViewTabs();
   bindTaskForm();
   bindTemplateModal();
+  bindTaskSearch();
   renderTaskList();
 
   let last = 'calendar';
@@ -473,6 +474,35 @@ function switchView(view) {
   try { sessionStorage.setItem(TASK_VIEW_KEY, view); } catch (e) { /* 何もしない */ }
 }
 
+/* ---------- 検索(件名の部分一致で絞り込み表示。端末内のみ・外部送信なし) ---------- */
+let taskSearchQuery = ''; // 実行済みの検索語(入力中の文字ではなく「検索」/Enter 時点の値)
+
+// 全角/半角・大文字/小文字の違いを吸収して比較する。
+function normalizeForSearch(s) {
+  return String(s || '').normalize('NFKC').toLowerCase();
+}
+
+function matchesTaskSearch(t) {
+  if (!taskSearchQuery) return true;
+  return normalizeForSearch(t.title).includes(normalizeForSearch(taskSearchQuery));
+}
+
+function bindTaskSearch() {
+  const form = document.getElementById('task-search-form');
+  const input = document.getElementById('task-search');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    taskSearchQuery = input.value.trim();
+    renderTaskList();
+  });
+  document.getElementById('task-search-clear').addEventListener('click', () => {
+    input.value = '';
+    taskSearchQuery = '';
+    renderTaskList();
+    input.focus();
+  });
+}
+
 /* ---------- 一覧描画(区分セクション + 完了済み) ---------- */
 let completedExpanded = false; // 「完了済み」セクションの開閉状態(既定: 折りたたみ)
 
@@ -482,10 +512,12 @@ function renderTaskList() {
   ul.innerHTML = '';
 
   // タスクを区分ごとに振り分け(区分は due から都度計算。タスクには保存しない)。
+  // 検索中は振り分け前に件名で絞り込む(bucketOf / sortTasks 自体は変更しない)。
   const b = computeTaskBoundaries();
   const groups = { completed: [] };
   for (const s of TASK_SECTIONS) groups[s.key] = [];
-  for (const t of TaskStore.all()) {
+  const visible = TaskStore.all().filter(matchesTaskSearch);
+  for (const t of visible) {
     const k = bucketOf(t, b);
     (groups[k] || (groups[k] = [])).push(t);
   }
@@ -509,7 +541,17 @@ function renderTaskList() {
   // 「完了済み」セクションは常設(0 件でも見出しは出す。既定は折りたたみ)。
   renderCompletedSection(ul, sortCompleted(groups.completed));
 
-  empty.hidden = (activeCount + groups.completed.length) > 0;
+  const total = activeCount + groups.completed.length;
+  empty.hidden = total > 0 || !!taskSearchQuery;
+
+  const status = document.getElementById('task-search-status');
+  if (taskSearchQuery) {
+    status.textContent = `「${taskSearchQuery}」の検索結果: ${total} 件`
+      + (groups.completed.length > 0 ? `(うち完了済み ${groups.completed.length} 件)` : '');
+    status.hidden = false;
+  } else {
+    status.hidden = true;
+  }
 }
 
 function renderCompletedSection(ul, items) {

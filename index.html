@@ -52,6 +52,12 @@
         <button type="button" id="template-manage-btn" class="ghost small">パターン管理</button>
         <button type="button" id="task-add-btn" class="primary">＋ タスクを追加</button>
       </div>
+      <form class="task-search" id="task-search-form" role="search">
+        <input type="search" id="task-search" placeholder="件名で検索(会社名・氏名など)" aria-label="タスクを件名で検索" autocomplete="off">
+        <button type="submit" class="ghost small" id="task-search-btn">検索</button>
+        <button type="button" class="ghost small" id="task-search-clear" aria-label="検索をクリア" title="検索をクリア">✕</button>
+      </form>
+      <p id="task-search-status" class="muted task-search-status" hidden></p>
       <ul id="task-list" class="task-list"></ul>
       <p id="task-empty" class="muted" hidden>タスクはありません。「＋ タスクを追加」から登録してください。</p>
     </section>

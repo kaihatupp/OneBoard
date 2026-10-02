@@ -671,6 +671,25 @@ body.tasks-view #add-event-btn { display: none !important; }
 .task-item.is-done .task-meta { color: var(--muted); }
 /* 3f追記: 個別移動ボタン(行の右端) */
 .task-item .task-move-one-btn { flex-shrink: 0; align-self: center; }
+
+/* 検索欄(件名で絞り込み)。スマホ(閲覧専用)でも表示する */
+.task-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.task-search input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.task-search button { flex-shrink: 0; }
+.task-search-status { margin: -4px 0 10px; font-size: 13px; }
 /* スマホ(閲覧専用)ではチェックボックス・タスク追加を出さない */
 body.viewer-mode .tasks-head,
 body.viewer-mode .task-check { display: none !important; }
@@ -783,4 +802,7 @@ body.viewer-mode #task-move-hint { display: none !important; }
   /* スマホは画面いっぱい表示。本文の横ドラッグは無効(縦のみ) */
   #task-modal .modal { max-width: none; overflow: hidden; }
   #task-body { resize: vertical; }
+  /* 検索欄: 16px で iOS の自動ズームを抑止 + タップしやすい高さ */
+  .task-search input[type="search"] { font-size: 16px; min-height: 40px; }
+  .task-search button { min-height: 40px; }
 }
