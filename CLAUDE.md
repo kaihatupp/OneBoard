@@ -273,6 +273,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     (`rows=14` + `#task-body { min-height:200px; resize:both }`、縦横どちらもドラッグで拡大可)。
     右に広げられるようタスクのモーダルだけ `max-width:720px` + `overflow:auto`。
     スマホでは全幅表示 + 縦ドラッグのみ。
+  - **件名検索(2026-10-02 追加)**: タスク画面の上部(`.tasks-head` の下)に検索欄
+    (`#task-search-form`: 入力 + 「検索」+「✕」クリア)。「検索」ボタン / Enter で実行。
+    - 対象は**件名(`title`)のみ**。部分一致、大文字小文字・全角半角は区別しない
+      (`normalizeForSearch()` = NFKC + toLowerCase)。会社名のかっこ書きも件名の一部なので自然にヒット。
+    - 動作: 実行済みの検索語を `taskSearchQuery`(メモリのみ。保存しない)に持ち、`renderTaskList()` が
+      区分振り分けの**直前**に `TaskStore.all().filter(matchesTaskSearch)` で絞り込む。区分セクション構造は
+      そのまま、マッチ 0 件のセクションは通常どおり非表示。「完了済み」は従来どおり常設(件数は該当分)。
+      再描画(編集・完了チェック等)後も絞り込みは維持。`bucketOf()` / `sortTasks()` / `sortCompleted()` は変更なし。
+    - 検索中は `#task-search-status` に「『◯◯』の検索結果: N 件(うち完了済み M 件)」を表示し、
+      0 件でも「タスクはありません」(`#task-empty`)は出さない。空(空白のみ)で検索 or「✕」で全件表示に戻る。
+    - スマホ(閲覧専用)でも表示(`.tasks-head` の外に置いているので viewer-mode で隠れない)。
+      絞り込み表示のみで編集を伴わず、端末内データだけを対象にするため外部送信なし。
+    - 稼働確認済み(2026-10-02、ヘッドレス Chrome・ダミータスクで 21 チェック): 会社名・氏名の部分一致、
+      大文字小文字/全角半角の同一視、0 件セクションの非表示、0 件時の表示、再描画後の維持、
+      クリア・空検索で全件復帰、viewer-mode での表示。
   - 稼働確認済み(2026-09-09): 各区分への振り分け(今日=水曜、月曜始まりの週境界 9/13・9/14・9/20、
     月末境界 9/30・10/1・10/31)、期限切れセクションの表示/非表示切替、0 件セクションの省略、
     全消し時の `#task-empty`、一覧が件名中心になること・行クリックで本文まで確認できることを実ブラウザで確認。
@@ -579,7 +594,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v19`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v20`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
