@@ -15,7 +15,7 @@
  *   古いキャッシュは activate 時に削除される。
  * ======================================================================= */
 
-const CACHE = 'oneboard-v20';
+const CACHE = 'oneboard-v21';
 
 const ASSETS = [
   './',
@@ -45,7 +45,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(
-        keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)),
+        keys.filter((k) => k.startsWith('oneboard-') && k !== CACHE).map((k) => caches.delete(k)),
       ))
       .then(() => self.clients.claim()),
   );

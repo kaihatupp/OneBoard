@@ -69,6 +69,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   姉妹アプリのローカルサーバーと同一オリジンに残った古い SW を解除する
   (`github.io` では他アプリの SW を消さないよう解除処理を通さない)。
   アプリ資産を変更したら `sw.js` の `CACHE` バージョンを上げること(下記「SW キャッシュ更新手順」)。
+  - **キャッシュは他の自作アプリと共有される**: 同じ場所(`https://kaihatupp.github.io`)で
+    他の自作アプリと同居しており、Cache Storage はオリジン単位で共有される。
+  - **古いキャッシュの削除は自アプリの接頭辞(`oneboard-`)で始まるものだけ**にする
+    (`keys.filter((k) => k.startsWith('oneboard-') && k !== CACHE)`)。
+    「現在のキャッシュ名以外を全削除」(`k !== CACHE` だけ)の書き方は**禁止**
+    (他アプリのキャッシュを消してしまうため)。
+  - `sw.js` やキャッシュ対象のファイルを変えたときは、キャッシュ名の番号を上げる。
 
 ## 起動方法
 
@@ -594,7 +601,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v20`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v21`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
