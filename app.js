@@ -191,6 +191,25 @@ const InboxAck = (() => {
 /* ---------- 起動 ---------- */
 document.addEventListener('DOMContentLoaded', init);
 
+// 「データ」画面の下に「版: oneboard-vNN」を出す(Service Worker のキャッシュ名から)。
+// caches が使えない/oneboard- のキャッシュが無い(PC の localhost は SW 不使用)ときは何も出さない。
+// 複数あれば番号が最大のものだけ。失敗してもエラーは出さない。
+async function showAppVersion() {
+  const el = document.getElementById('app-version');
+  if (!el) return;
+  try {
+    if (typeof caches === 'undefined') { el.hidden = true; return; }
+    const names = (await caches.keys()).filter((k) => k.startsWith('oneboard-'));
+    if (names.length === 0) { el.hidden = true; return; }
+    const num = (k) => { const m = k.match(/(\d+)\s*$/); return m ? parseInt(m[1], 10) : -1; };
+    names.sort((a, b) => num(b) - num(a));
+    el.textContent = '版: ' + names[0];
+    el.hidden = false;
+  } catch (e) {
+    el.hidden = true;
+  }
+}
+
 async function init() {
   // Service Worker は https 配信(GitHub Pages など)でのみ使う。
   //  - https:  PWA/オフライン用に sw.js を登録(相対パスなのでスコープはアプリ配下に限定)。
@@ -932,7 +951,10 @@ function bindChrome() {
   document.getElementById('add-event-btn').addEventListener('click', () => {
     openEventModal(null, toYmd(new Date()));
   });
-  document.getElementById('data-btn').addEventListener('click', () => openModal('data-modal'));
+  document.getElementById('data-btn').addEventListener('click', () => {
+    openModal('data-modal');
+    showAppVersion();
+  });
   document.getElementById('holiday-banner-close').addEventListener('click', () => {
     sessionStorage.setItem('oneboard.hideHolidayBanner', '1');
     document.getElementById('holiday-banner').hidden = true;
