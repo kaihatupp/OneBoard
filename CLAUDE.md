@@ -443,6 +443,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     `requestAnimationFrame` で `#task-body.scrollTop = scrollHeight`(モーダル表示後に高さが取れてから)。
     PC(編集)・スマホ(閲覧専用)とも同じ。新規タスク・パターンコピー直後は対象外。
     スクロールのみ(カーソル位置・文字カウンター・保存は不変)。変更は `tasks.js` のみ(データ形式不変)。
+- **版の番号の表示(実装済み・2026-11-11)**
+  - 「データ」画面(`#data-modal`)の本文の最下部に、小さく「版: oneboard-vNN」(`#app-version`、既存の
+    `.hint` と同じ灰色の小さな文字)。`#data-export-row` の外に置いてあるのでスマホ(閲覧専用)でも見える。
+  - 値は `caches.keys()` のうち `oneboard-` で始まるもの。複数あれば末尾の番号が最大の 1 つだけ
+    (`showAppVersion()`、⚙ を押してモーダルを開くたびに更新)。
+  - 表示しない条件: `caches` が使えない / `oneboard-` のキャッシュが 1 つも無い(PC の localhost は
+    Service Worker 不使用 → 非表示)/ 取得で例外。いずれもエラーは出さない。
+  - 目的: スマホが新版(sw.js の CACHE 番号)になったかを、実機で目視確認できるようにする。
 - **配信データの圧縮(2段階公開・2026-11-11 開始)**
   - 背景: 自動反映のたびに `data/oneboard.enc.json` をコミットするため `.git` が約271MiB(826コミット)まで
     増えた。暗号文は差分圧縮が効かないので、1回あたりのサイズ自体を減らす。暗号化の**前**に JSON を
@@ -658,7 +666,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v25`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v26`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
@@ -678,9 +686,8 @@ OneBoard-app-dev/
   `taskTemplates` は同期対象にしない)。
 - **9/7 のデータ復旧作業ファイル**(Chrome LevelDB ダンプ・復旧済み予定の平文 JSON 等)は
   スクラッチパッドから 2026-09-09 に全削除。
-- デスクトップに `OneBoard-復旧データ-2026-09-07.json`(復旧済み6件の**平文**バックアップ)が
-  残っている。現データは GitHub(暗号化)+ 端末 localStorage にあるので、マサさんが不要と
-  判断したら削除してよい。
+- デスクトップの `OneBoard-復旧データ-2026-09-07.json`(復旧済み6件の**平文**バックアップ)は
+  マサさんが**削除済み**(2026-11-11 更新)。現データは GitHub(暗号化)+ 端末 localStorage にある。
 
 ## 本番データの取り扱い(恒久ルール)
 
@@ -720,5 +727,5 @@ OneBoard-app-dev/
 - 姉妹アプリ(gym-training-trend / health-tracker)は ID 付き形式
   `310461674+kaihatupp@users.noreply.github.com` を使用。OneBoard は ID なし形式だが、
   同一 GitHub アカウントに紐づくため実害なし(統一しないことをマサさんが了承済み)。
-- 書き換え前の履歴バックアップ: `デスクトップ/OneBoard-履歴バックアップ-書換前-77af123.bundle`
-  (マサさんが確認後に削除可)。
+- 書き換え前の履歴バックアップ(`OneBoard-履歴バックアップ-書換前-77af123.bundle`)は
+  マサさんが**削除済み**(2026-11-11 更新)。
