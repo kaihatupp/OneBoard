@@ -438,6 +438,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     編集時にもカウンター表示、39,999 灰 / 40,000 橙 / 50,000 赤、60,000 字貼り付けで 50,000 に切り詰め+赤、
     setItem 失敗でアラート+モーダル維持+メモリ巻き戻し、50,000 字のタスクの暗号化→復号→閲覧専用表示
     (スマホ幅で本文スクロール可・カウンター非表示)。
+- **配信データの圧縮(2段階公開・2026-11-11 開始)**
+  - 背景: 自動反映のたびに `data/oneboard.enc.json` をコミットするため `.git` が約271MiB(826コミット)まで
+    増えた。暗号文は差分圧縮が効かないので、1回あたりのサイズ自体を減らす。暗号化の**前**に JSON を
+    `CompressionStream('gzip')` で圧縮する(ライブラリ不使用)。エンベロープに `z:"gzip"` の印を付ける。
+  - **段階1(実装済み・読み取り側だけ)**: `crypto.js` の `obDecrypt()` が `z:"gzip"` を検出したら復号後に
+    `DecompressionStream` で展開してから読む。印が無ければ従来どおり。「GitHub から復元」「ファイルから
+    取り込み」「スマホの配信データ取得」「捕捉メモの取り込み」はすべて `obDecrypt()` 経由なので新旧両対応。
+    `server.py` の検証は `f/cipher/ct/iv/kdf` だけ見るので `z` 付きでも弾かない(変更なし)。
+    エラー文: 展開未対応ブラウザ / 展開失敗 / 未知の `z` それぞれ分かりやすい文言で throw。
+    **書き出し側はまだ従来形式のまま**(`obEncrypt()` 未変更)。
+  - **段階2(未実装・段階1の確認後)**: 書き出しを「圧縮してから暗号化」に切り替える。`CompressionStream`
+    が無い環境は圧縮せず従来形式で書く。あわせて「内容が同じなら /__publish を送らない」を入れる。
+    **段階2を先に出さない理由**: スマホが旧版(段階1未導入)のままだと、`z` 付きファイルを復号後に
+    JSON として読めず、閲覧できなくなる。スマホが新版(`sw.js` v23 以降)になってから切り替えること。
+  - 測定(ダミー・50,000字×4件+予定5件、暗号化後): 繰り返しの多い文章で 666KB → 81KB、
+    ランダムに近い文字列で 802KB → 50KB(いずれもダミー。実データの圧縮率は文章次第で、これより小さく出る
+    可能性がある)。
+  - 稼働確認済み(2026-11-11、ヘッドレス Chrome): 旧形式・`z:gzip`・現行 `obEncrypt` の往復一致、
+    未知の `z` / 壊れた gzip / パスフレーズ違い / `DecompressionStream` 無しの各エラー文。
 - **フェーズ3・残り(未実装)**
   - 3g: カレンダー連携表示(重要タスクとカレンダーの連動。イベントの `linkedTaskId` を使う)
 - **将来フェーズ(構想・未着手)**
@@ -562,7 +581,9 @@ OneBoard-app-dev/
 
 // 書き出しファイル data/oneboard.enc.json … crypto.js のエンベロープ(暗号文)
 //   { f:"oneboard-enc", v:1,
-//     kdf:{name:"PBKDF2",hash:"SHA-256",iter,salt(b64)}, cipher:"AES-GCM", iv(b64), ct(b64) }
+//     kdf:{name:"PBKDF2",hash:"SHA-256",iter,salt(b64)}, cipher:"AES-GCM", iv(b64), ct(b64),
+//     z?:"gzip" }   // z があれば「JSON を gzip 圧縮してから暗号化」。復号後に展開してから読む。
+//                   // z が無ければ従来形式(復号結果がそのまま JSON)。z が未知の値なら「新しい形式」エラー
 //   復号後のペイロード(配信データ):
 //   { kind:"oneboard-export", version:1, publishedAt(ISO), events:Event[],
 //     settings:{homeStation}, tasks:Task[], inboxAck:string[] }
@@ -623,7 +644,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v22`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v23`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
