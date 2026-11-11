@@ -438,6 +438,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     編集時にもカウンター表示、39,999 灰 / 40,000 橙 / 50,000 赤、60,000 字貼り付けで 50,000 に切り詰め+赤、
     setItem 失敗でアラート+モーダル維持+メモリ巻き戻し、50,000 字のタスクの暗号化→復号→閲覧専用表示
     (スマホ幅で本文スクロール可・カウンター非表示)。
+- **タスクを開いたとき本文を末尾から表示(実装済み・2026-11-11)**
+  - 長期タスクは経緯を本文の末尾に貼り足す運用のため、`openTaskModal(task)` が既存タスクを開いた直後、
+    `requestAnimationFrame` で `#task-body.scrollTop = scrollHeight`(モーダル表示後に高さが取れてから)。
+    PC(編集)・スマホ(閲覧専用)とも同じ。新規タスク・パターンコピー直後は対象外。
+    スクロールのみ(カーソル位置・文字カウンター・保存は不変)。変更は `tasks.js` のみ(データ形式不変)。
 - **配信データの圧縮(2段階公開・2026-11-11 開始)**
   - 背景: 自動反映のたびに `data/oneboard.enc.json` をコミットするため `.git` が約271MiB(826コミット)まで
     増えた。暗号文は差分圧縮が効かないので、1回あたりのサイズ自体を減らす。暗号化の**前**に JSON を
@@ -653,7 +658,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v24`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v25`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
