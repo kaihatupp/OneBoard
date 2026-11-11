@@ -181,12 +181,18 @@ const TaskStore = (() => {
     return tasks;
   }
 
+  // 保存に成功したら true。失敗(QuotaExceededError 等)なら警告を出して false。
+  // 呼び出し側は false のとき直前のメモリ状態へ戻し、画面だけ保存済みに見える状態を作らない。
   function persist() {
     try {
       localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+      return true;
     } catch (e) {
       console.error('[OneBoard] タスクの保存に失敗しました', e);
-      alert('タスクの保存に失敗しました。ブラウザのストレージ容量をご確認ください。');
+      alert('【保存に失敗しました】ブラウザの保存容量が足りない可能性があります。'
+        + '今回の変更は保存されていません(画面を閉じると失われます)。'
+        + '長い本文は一部を別の場所に控えてから、不要なタスクの整理をお試しください。');
+      return false;
     }
   }
 
@@ -195,6 +201,8 @@ const TaskStore = (() => {
 
   function upsert(input) {
     const clean = normalize(input);
+    const prev = tasks;
+    tasks = tasks.slice();
     const idx = tasks.findIndex((t) => t.id === clean.id);
     if (idx >= 0) {
       clean.createdAt = tasks[idx].createdAt;
@@ -203,24 +211,26 @@ const TaskStore = (() => {
     } else {
       tasks.push(clean);
     }
-    persist();
+    if (!persist()) { tasks = prev; return null; }
     return clean;
   }
 
   function remove(id) {
-    const before = tasks.length;
+    const prev = tasks;
     tasks = tasks.filter((t) => t.id !== id);
-    if (tasks.length !== before) persist();
+    if (tasks.length !== prev.length && !persist()) { tasks = prev; return false; }
+    return true;
   }
 
   // 完了チェックの ON/OFF。ON で completedAt を記録、OFF で null に戻す。
   function setCompleted(id, value) {
     const t = tasks.find((x) => x.id === id);
     if (!t) return null;
+    const snap = { ...t };
     t.completed = value === true;
     t.completedAt = t.completed ? new Date().toISOString() : null;
     t.updatedAt = new Date().toISOString();
-    persist();
+    if (!persist()) { Object.assign(t, snap); return null; }
     return t;
   }
 
@@ -228,16 +238,18 @@ const TaskStore = (() => {
   function setDue(id, ymd) {
     const t = tasks.find((x) => x.id === id);
     if (!t) return null;
+    const snap = { ...t };
     t.due = /^\d{4}-\d{2}-\d{2}$/.test(ymd || '') ? ymd : null;
     t.updatedAt = new Date().toISOString();
-    persist();
+    if (!persist()) { Object.assign(t, snap); return null; }
     return t;
   }
 
   // 同期用: 配信データ(または取り込みファイル)の tasks で全置換。
   function replaceAll(list) {
+    const prev = tasks;
     tasks = Array.isArray(list) ? list.map(normalize) : [];
-    persist();
+    if (!persist()) tasks = prev;
     return tasks.length;
   }
 
@@ -440,6 +452,7 @@ function initTasks() {
   TaskTemplateStore.load();
   bindViewTabs();
   bindTaskForm();
+  initTaskBodyCounter();
   bindTemplateModal();
   bindTaskSearch();
   renderTaskList();
@@ -789,7 +802,41 @@ function onCopyTemplateToBody() {
   }
   titleEl.value = tpl.name;
   bodyEl.value = tpl.body;
+  updateBodyCounter();
   bodyEl.focus();
+}
+
+/* ---------- 本文の文字数上限とカウンター ---------- */
+// 本文(#task-body)の上限。ここが唯一の定義(maxlength もこの値から設定する)。
+// 記載パターンの雛形(#template-body)は別物で 5,000 のまま。
+const TASK_BODY_MAX = 50000;
+const TASK_BODY_WARN_RATIO = 0.8; // これ以上でオレンジ(80%以上〜上限未満)
+
+// 数え方は maxlength の判定と同じ textarea.value.length。
+function updateBodyCounter() {
+  const bodyEl = document.getElementById('task-body');
+  const el = document.getElementById('task-body-counter');
+  if (!bodyEl || !el) return;
+  const n = bodyEl.value.length;
+  let level = 'ok';
+  let msg = '';
+  if (n >= TASK_BODY_MAX) {
+    level = 'full';
+    msg = '上限に達しました。これ以上は入力できません。貼り付けた文章の続きは切れています';
+  } else if (n >= TASK_BODY_MAX * TASK_BODY_WARN_RATIO) {
+    level = 'warn';
+    msg = '上限が近づいています';
+  }
+  el.className = 'body-counter body-counter-' + level;
+  el.textContent = `${n.toLocaleString('en-US')} / ${TASK_BODY_MAX.toLocaleString('en-US')}` + (msg ? ` ${msg}` : '');
+}
+
+function initTaskBodyCounter() {
+  const bodyEl = document.getElementById('task-body');
+  if (!bodyEl) return;
+  bodyEl.maxLength = TASK_BODY_MAX;
+  bodyEl.addEventListener('input', updateBodyCounter);
+  updateBodyCounter();
 }
 
 function openTaskModal(task) {
@@ -804,6 +851,7 @@ function openTaskModal(task) {
   document.getElementById('task-due').value = task && task.due ? task.due : '';
   document.getElementById('task-inprogress').checked = task ? task.inProgress : false;
   document.getElementById('task-body').value = task ? task.body : '';
+  updateBodyCounter();
   populateTemplateSelect(task ? task.templateName : '');
   fillMoveRuleForm(task ? task.moveRule : null);
 
@@ -840,7 +888,7 @@ function onSubmitTask(e) {
   if (wasInProgress && !nextInProgress && !becomingCompletedNow) {
     due = toYmd(new Date());
   }
-  TaskStore.upsert({
+  const saved = TaskStore.upsert({
     id: editingTaskId || undefined,
     title,
     due,
@@ -853,6 +901,8 @@ function onSubmitTask(e) {
     // 3f: 移動ルール(「設定しない」なら null)。
     moveRule: readMoveRuleFromForm(),
   });
+  // 保存失敗(警告は TaskStore 側で表示済み)。モーダルを開いたままにして入力を失わせない。
+  if (!saved) return;
   closeModal('task-modal');
   renderTaskList();
   scheduleTaskSync();
@@ -863,7 +913,7 @@ function onDeleteTask() {
   const t = TaskStore.get(editingTaskId);
   if (!t) return;
   if (window.confirm(`「${t.title || '(件名なし)'}」を削除しますか?`)) {
-    TaskStore.remove(editingTaskId);
+    if (!TaskStore.remove(editingTaskId)) return;
     closeModal('task-modal');
     renderTaskList();
     scheduleTaskSync();
