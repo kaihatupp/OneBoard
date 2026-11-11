@@ -451,6 +451,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 表示しない条件: `caches` が使えない / `oneboard-` のキャッシュが 1 つも無い(PC の localhost は
     Service Worker 不使用 → 非表示)/ 取得で例外。いずれもエラーは出さない。
   - 目的: スマホが新版(sw.js の CACHE 番号)になったかを、実機で目視確認できるようにする。
+  - 実機確認済み(2026-11-11): スマホ(GitHub Pages 版)で「版: oneboard-v26」の表示をマサさんが確認。
 - **配信データの圧縮(2段階公開・2026-11-11 開始)**
   - 背景: 自動反映のたびに `data/oneboard.enc.json` をコミットするため `.git` が約271MiB(826コミット)まで
     増えた。暗号文は差分圧縮が効かないので、1回あたりのサイズ自体を減らす。暗号化の**前**に JSON を
