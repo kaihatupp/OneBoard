@@ -866,6 +866,12 @@ function openTaskModal(task) {
 
   openModal('task-modal');
   if (!readOnly) document.getElementById('task-title').focus();
+  // 既存タスクは本文の末尾(最新の貼り足し部分)から見せる。モーダルが表示されて高さが取れてから
+  // スクロールする(スクロールのみ。カーソル位置・カウンター・保存には触れない)。
+  if (task) {
+    const bodyEl = document.getElementById('task-body');
+    requestAnimationFrame(() => { bodyEl.scrollTop = bodyEl.scrollHeight; });
+  }
 }
 
 function onSubmitTask(e) {
