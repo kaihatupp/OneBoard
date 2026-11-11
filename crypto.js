@@ -8,6 +8,7 @@
  *
  *   obEncrypt(obj, passphrase)      -> エンベロープ JSON 文字列
  *   obDecrypt(envelopeText, pass)   -> 元のオブジェクト(パスフレーズ違い/改竄で throw)
+ *                                      エンベロープに z:'gzip' があれば復号後に展開(新旧どちらも読める)
  *
  * パスフレーズはこのファイルでは保存しない(呼び出し側の責任)。
  * ======================================================================= */
@@ -91,6 +92,24 @@ async function obDecrypt(envelopeText, passphrase) {
   } catch (e) {
     // AES-GCM は認証付き。パスフレーズ違い・改竄はここで例外になる。
     throw new Error('パスフレーズが違うか、ファイルが壊れています');
+  }
+  // 圧縮の印(env.z === 'gzip')があれば、復号後に展開してから読む。印が無ければ従来どおり。
+  // (段階1: 読み取り側のみ対応。書き出し側の圧縮は段階2で有効化する)
+  if (env.z !== undefined) {
+    if (env.z !== 'gzip') {
+      throw new Error('このファイルは新しい形式です。アプリを最新版に更新してから、もう一度お試しください');
+    }
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('このブラウザは圧縮データの展開に対応していません。Chrome など新しいブラウザでお試しください');
+    }
+    let inflated;
+    try {
+      const stream = new Blob([plaintext]).stream().pipeThrough(new DecompressionStream('gzip'));
+      inflated = await new Response(stream).arrayBuffer();
+    } catch (e) {
+      throw new Error('圧縮データの展開に失敗しました。ファイルが壊れている可能性があります');
+    }
+    return JSON.parse(new TextDecoder().decode(inflated));
   }
   return JSON.parse(new TextDecoder().decode(plaintext));
 }
