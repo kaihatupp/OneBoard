@@ -416,6 +416,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 稼働確認済み(2026-09-25、ヘッドレス Chrome・ダミーデータ): 「今日」以外の区分にある
     ルール設定済みタスクが即座に次回日へ移動、進行中・完了済み・ルール未設定にはボタンが出ない、
     条件を満たすタスクには出る、一括移動の既存動作(今日のみ移動・来月は不変)に影響なし。
+- **フェーズ3c・追記(実装済み・2026-11-11): タスク本文の上限 50,000 文字 + 文字数カウンター + 保存失敗の扱い**
+  - 経緯: 長期タスク(決算の進捗など)は経緯を本文に貼り足していく運用で、従来の上限 5,000 文字では
+    足りず、上限で後半が黙って切り捨てられていた。上限を **50,000 文字**に拡大し、気づける表示を追加。
+  - 上限は `tasks.js` の `TASK_BODY_MAX`(1か所の定義)。`#task-body` の `maxlength` は
+    `initTaskBodyCounter()` がこの定数から設定(index.html に固定値は置かない)。
+    **記載パターンの雛形 `#template-body` は 5,000 文字のまま**(変更しない)。保存済みデータの移行なし。
+  - 文字数カウンター `#task-body-counter`(PC の編集モーダル。`updateBodyCounter()`、`textarea.value.length`
+    で数える=maxlength 判定と同じ)。「3,200 / 50,000」(桁区切り)。入力・貼り付け・モーダルを開いたとき・
+    パターンコピー時に更新。色の段階: **80%未満(40,000 字未満)=灰** / **40,000 字以上〜49,999 字=オレンジ
+    +「上限が近づいています」** / **50,000 字(上限)=赤 +「上限に達しました。これ以上は入力できません。
+    貼り付けた文章の続きは切れています」**(貼り付けで切り捨てられた場合も 50,000 字になるので赤が出る)。
+  - スマホ(閲覧専用)はカウンター非表示(`body.viewer-mode .body-counter`)。
+  - **保存失敗の扱い**: `TaskStore.persist()` が `localStorage.setItem` 失敗(QuotaExceededError 等)で
+    警告 alert を出して `false` を返し、`upsert`/`remove`/`setCompleted`/`setDue`/`replaceAll` は
+    メモリ状態を直前に巻き戻す(画面だけ保存済みに見える状態を作らない)。
+    編集フォームは保存失敗時にモーダルを閉じず入力を残す(`onSubmitTask` / `onDeleteTask`)。
+  - 配信ファイルの目安: 50,000 字(日本語)のタスク 4 件で暗号化後 約 800KB(1 件あたり約 200KB)。
+  - 変更ファイル: `tasks.js` / `index.html` / `style.css` / `sw.js`(v22)。データ形式は不変。
+  - 稼働確認済み(2026-11-11、使い捨てのヘッドレス Chrome・ダミー文字列): 49,000 字の保存・再読み込みで欠けず、
+    編集時にもカウンター表示、39,999 灰 / 40,000 橙 / 50,000 赤、60,000 字貼り付けで 50,000 に切り詰め+赤、
+    setItem 失敗でアラート+モーダル維持+メモリ巻き戻し、50,000 字のタスクの暗号化→復号→閲覧専用表示
+    (スマホ幅で本文スクロール可・カウンター非表示)。
 - **フェーズ3・残り(未実装)**
   - 3g: カレンダー連携表示(重要タスクとカレンダーの連動。イベントの `linkedTaskId` を使う)
 - **将来フェーズ(構想・未着手)**
@@ -504,7 +526,7 @@ OneBoard-app-dev/
 //                             //    weekday?:0-6, day?:1-31, days?:1-365,
 //                             //    holidayAdjust:'forward'|'backward' }
 //   templateName,             // 3d: タスク作成時に選んだ記載パターン名(自由記載なら null)
-//   body,                     // 本文(自由記述)
+//   body,                     // 本文(自由記述。上限 50,000 文字 = tasks.js の TASK_BODY_MAX)
 //   createdAt, updatedAt
 // }
 //   ※ 3c: 携帯同期の対象(配信ペイロードの tasks[])。taskTemplates は同期しない方針。
@@ -601,7 +623,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v21`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v22`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
