@@ -448,10 +448,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     `server.py` の検証は `f/cipher/ct/iv/kdf` だけ見るので `z` 付きでも弾かない(変更なし)。
     エラー文: 展開未対応ブラウザ / 展開失敗 / 未知の `z` それぞれ分かりやすい文言で throw。
     **書き出し側はまだ従来形式のまま**(`obEncrypt()` 未変更)。
-  - **段階2(未実装・段階1の確認後)**: 書き出しを「圧縮してから暗号化」に切り替える。`CompressionStream`
-    が無い環境は圧縮せず従来形式で書く。あわせて「内容が同じなら /__publish を送らない」を入れる。
-    **段階2を先に出さない理由**: スマホが旧版(段階1未導入)のままだと、`z` 付きファイルを復号後に
-    JSON として読めず、閲覧できなくなる。スマホが新版(`sw.js` v23 以降)になってから切り替えること。
+  - **段階2(実装済み・2026-11-11)**: 書き出し側を「圧縮してから暗号化」に切り替え。
+    `obEncrypt(obj, pass, {compress:true})` が `CompressionStream('gzip')` で圧縮し `z:"gzip"` を付ける。
+    `CompressionStream` が無い環境は圧縮せず従来形式で書く(読み取り側は新旧両対応)。
+    圧縮を使うのは配信(`sendPublish`)と「ファイルに書き出し」だけ。捕捉メモ(`oneboard-inbox`)の受け渡しは
+    従来どおり無圧縮。**段階1(v23)を先に出したのは、スマホが旧版だと `z` 付きを読めなくなるため**。
+    今後もエンベロープ形式を拡張するときは「読み取り側を先に出し、スマホが新版になってから書き出し側」の順にする。
+  - **変更がないときは反映を送らない(自動反映のみ)**: `sendPublish()` が暗号化前の内容から署名
+    (`publishSignature()` = SHA-256 of `形式|パスフレーズ|payload から publishedAt を除いた JSON`)を作り、
+    `oneboard.sync.v1.lastPublishedSig`(最後に**送信成功**した署名)と同じなら `/__publish` を送らない
+    (`{ok:true, skipped:true}`)。署名の記録は成功時だけ(失敗時は更新しない=次回また送る)。
+    パスフレーズ・圧縮形式が変わると署名が変わるので必ず送る。スキップ時は `lastPublishedAt` を
+    変えず `pendingPublish` だけ落とす。**手動「スマホに反映」ボタンは内容が同じでも必ず送る**(force)。
   - 測定(ダミー・50,000字×4件+予定5件、暗号化後): 繰り返しの多い文章で 666KB → 81KB、
     ランダムに近い文字列で 802KB → 50KB(いずれもダミー。実データの圧縮率は文章次第で、これより小さく出る
     可能性がある)。
@@ -571,6 +579,7 @@ OneBoard-app-dev/
 //     autoPublish,              // PC: 保存のたびの自動反映。既定 true。データ画面で切替
 //     pendingPublish }          // PC: デバウンス待ち/送信中の未送信変更があるか(2026-09-14 追加。
 //                               //   タブが閉じられても取りこぼさず起動時に再送するための永続フラグ)
+//     lastPublishedSig          // PC: 最後に送信成功した配信内容の署名(同じなら自動反映を送らない。2026-11-11 追加)
 
 // 捕捉インボックス: localStorage キー "oneboard.inbox.v1" … app.js の InboxStore
 //   [ { id, text, createdAt, receivedAt? } ]   // receivedAt は PC が取り込んだ分だけ付く
@@ -644,7 +653,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v23`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v24`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
