@@ -46,6 +46,7 @@ const SyncPrefs = (() => {
     passphrase: '', lastPulledAt: null, lastPublishedAt: null,
     autoPublish: true, // PC: 予定を変えたら自動で「スマホに反映」(既定オン。データ画面で停止可)
     pendingPublish: false, // 自動反映のデバウンス待ち/送信中に閉じられて未送信のままの変更があるか
+    lastPublishedSig: null, // 最後に「送信に成功した」配信内容のハッシュ(暗号化前の内容+パスフレーズ+形式)。同じなら自動反映を送らない
   };
 
   function load() {
@@ -383,7 +384,7 @@ async function onExportData() {
   }
   SyncPrefs.set({ passphrase: pass });
   try {
-    const envelope = await obEncrypt(buildExportPayload(), pass);
+    const envelope = await obEncrypt(buildExportPayload(), pass, { compress: true });
     downloadText(envelope, 'oneboard.enc.json');
     setDataStatus('書き出しました。data/oneboard.enc.json として置いて git push してください。', 'ok');
   } catch (e) {
@@ -394,15 +395,34 @@ async function onExportData() {
 
 /* ---------- 方式B: server.py の /__publish へ配信 ---------- */
 
+// 配信内容の署名。暗号文は毎回変わるので「暗号化前の内容」で比べる。
+// publishedAt(毎回変わる)は除き、パスフレーズと圧縮形式も混ぜる
+// (パスフレーズを変えたとき・形式が変わったときは必ず送る)。
+async function publishSignature(payload, passphrase, compress) {
+  const { publishedAt, ...rest } = payload;
+  const text = (compress ? 'z1' : 'z0') + '|' + passphrase + '|' + JSON.stringify(rest);
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return obBytesToB64(buf);
+}
+
 // 暗号化 → POST /__publish。server.py の応答オブジェクトを返す(throw はしない)。
-async function sendPublish(passphrase) {
-  const envelope = await obEncrypt(buildExportPayload(), passphrase);
+// force でなく、直前に送信成功した内容と同じなら送らず { ok:true, skipped:true } を返す。
+// 成功時は応答に sig を付ける(呼び出し側が成功時だけ記録する)。
+async function sendPublish(passphrase, force) {
+  const payload = buildExportPayload();
+  const compress = typeof CompressionStream !== 'undefined';
+  const sig = await publishSignature(payload, passphrase, compress);
+  if (!force && sig === SyncPrefs.get('lastPublishedSig')) {
+    return { ok: true, skipped: true, sig };
+  }
+  const envelope = await obEncrypt(payload, passphrase, { compress: true });
   const res = await fetch('/__publish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: envelope,
   });
-  return res.json().catch(() => ({ ok: false, message: '応答を解釈できませんでした' }));
+  const r = await res.json().catch(() => ({ ok: false, message: '応答を解釈できませんでした' }));
+  return { ...r, sig };
 }
 
 // 「スマホに反映」ボタン(手動)。
@@ -422,9 +442,9 @@ async function onPublish() {
   setDataStatus('スマホに反映中…');
   updateFreshness();
   try {
-    const r = await sendPublish(pass);
+    const r = await sendPublish(pass, true); // 手動ボタンは内容が同じでも必ず送る
     if (r.ok) {
-      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString(), pendingPublish: false });
+      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString(), pendingPublish: false, lastPublishedSig: r.sig });
       const when = r.at ? fmtStamp(r.at) : fmtStamp(new Date().toISOString());
       setDataStatus(r.pushed === false
         ? `${r.note || '変更なし'}(${when})`
@@ -474,8 +494,12 @@ async function runAutoPublish() {
   updateFreshness();
   try {
     const r = await sendPublish(SyncPrefs.get('passphrase'));
-    if (r && r.ok) {
-      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString(), pendingPublish: false });
+    if (r && r.ok && r.skipped) {
+      // 直前に送った内容と同じ → 送らない(lastPublishedAt はそのまま)
+      SyncPrefs.set({ pendingPublish: false });
+      autoPublishError = null;
+    } else if (r && r.ok) {
+      SyncPrefs.set({ lastPublishedAt: r.at || new Date().toISOString(), pendingPublish: false, lastPublishedSig: r.sig });
       autoPublishError = null;
     } else {
       autoPublishError = (r && r.message) || '反映に失敗';

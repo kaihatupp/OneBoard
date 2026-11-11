@@ -6,7 +6,7 @@
  * ブラウザ標準の Web Crypto(window.crypto.subtle)だけを使う。ライブラリ不使用。
  * secure context(https または localhost)でのみ動作する。
  *
- *   obEncrypt(obj, passphrase)      -> エンベロープ JSON 文字列
+ *   obEncrypt(obj, passphrase, {compress}) -> エンベロープ JSON 文字列(compress:true なら gzip してから暗号化)
  *   obDecrypt(envelopeText, pass)   -> 元のオブジェクト(パスフレーズ違い/改竄で throw)
  *                                      エンベロープに z:'gzip' があれば復号後に展開(新旧どちらも読める)
  *
@@ -47,22 +47,41 @@ async function obDeriveKey(passphrase, salt, iterations) {
 }
 
 /* ---------- 暗号化 ---------- */
-async function obEncrypt(obj, passphrase) {
+// opts.compress が true で、ブラウザが CompressionStream に対応していれば、
+// JSON を gzip 圧縮してから暗号化し、エンベロープに z:'gzip' の印を付ける。
+// 非対応環境では圧縮せず従来の形式で書く(読み取り側は新旧どちらも読める)。
+async function obGzip(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function obEncrypt(obj, passphrase, opts) {
   if (!passphrase) throw new Error('パスフレーズが空です');
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await obDeriveKey(passphrase, salt, OB_KDF_ITER);
-  const plaintext = new TextEncoder().encode(JSON.stringify(obj));
+  let plaintext = new TextEncoder().encode(JSON.stringify(obj));
+  let compressed = false;
+  if (opts && opts.compress && typeof CompressionStream !== 'undefined') {
+    try {
+      plaintext = await obGzip(plaintext);
+      compressed = true;
+    } catch (e) {
+      plaintext = new TextEncoder().encode(JSON.stringify(obj)); // 圧縮に失敗したら従来形式
+    }
+  }
   const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
 
-  return JSON.stringify({
+  const env = {
     f: OB_ENC_FORMAT,
     v: 1,
     kdf: { name: 'PBKDF2', hash: 'SHA-256', iter: OB_KDF_ITER, salt: obBytesToB64(salt) },
     cipher: 'AES-GCM',
     iv: obBytesToB64(iv),
     ct: obBytesToB64(ct),
-  }, null, 0);
+  };
+  if (compressed) env.z = 'gzip';
+  return JSON.stringify(env, null, 0);
 }
 
 /* ---------- 復号 ---------- */
