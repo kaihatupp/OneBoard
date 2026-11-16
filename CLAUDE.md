@@ -497,7 +497,8 @@ OneBoard-app-dev/
 ├── events.js            # データ層: 祝日ローダー / 予定ストア(localStorage) / 繰り返し展開
 ├── app.js               # 画面: 月グリッド描画・ナビゲーション・予定フォーム・モーダル制御
 │                         #   + 配信(SyncPrefs / 自動反映)・捕捉インボックス(InboxStore / InboxAck)
-├── tasks.js             # タスク管理(3a: CRUD、3b: 区分+件名検索、3c: 完了+同期、3d: 記載パターン、3f: 移動ルール+個別移動)。app.js の後
+├── tasks.js             # タスク管理(3a: CRUD+期限日初期値=本日、3b: 区分+件名検索、3c: 完了+同期+本文上限50,000字/文字数カウンター/保存失敗の巻き戻し、
+│                         #   3d: 記載パターン、3f: 移動ルール+一括/個別移動+進行中解除で期限を当日へ)。app.js の後
 ├── holidays.json        # 祝日データ(内閣府公開データを JSON 化して同梱)
 ├── crypto.js            # 暗号化ユーティリティ(Web Crypto。書き出し/取り込み用)
 ├── data/oneboard.enc.json # 配信データ(暗号文)。PC が書き出し → push、スマホが取得(gitで管理)
