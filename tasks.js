@@ -848,7 +848,8 @@ function openTaskModal(task) {
   document.getElementById('task-modal-title').textContent =
     readOnly ? 'タスク' : (task ? 'タスクを編集' : 'タスクを追加');
   document.getElementById('task-title').value = task ? task.title : '';
-  document.getElementById('task-due').value = task && task.due ? task.due : '';
+  // 新規タスクは期限日の初期値を本日(開くたびに計算)。既存タスクは保存値のまま(null は空)。
+  document.getElementById('task-due').value = task ? (task.due || '') : toYmd(new Date());
   document.getElementById('task-inprogress').checked = task ? task.inProgress : false;
   document.getElementById('task-body').value = task ? task.body : '';
   updateBodyCounter();
