@@ -244,6 +244,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     (カレンダー側の設計制約をそのまま踏襲。タスク追加で新たな外部通信は発生しない)。
   - 稼働確認済み(2026-09-09): 追加・編集(createdAt 保持 / updatedAt 更新)・削除・
     localStorage 保存・リロード後の復元・ビュー切り替え・カレンダー側への影響なしを実ブラウザで確認。
+  - **新規タスクの期限日の初期値は本日(2026-11-16)**: 「＋タスクを追加」でフォームを開くたびに
+    `openTaskModal()` が `toYmd(new Date())` を `#task-due` に入れる(日をまたいでも開くたび再計算)。
+    既存タスクの編集は保存値のまま(`due:null` は空欄のまま)。期限日を消して保存すれば従来どおり `null`(「後で」)。
   - 予約フィールド: `moveRule`(3f 一括移動)/ `templateName`(3d テンプレート)は今回は常に `null`。
     `oneboard.tasks.v1` はフェーズ3c で携帯同期の対象になる予定 → 後方互換を意識し無闇に変更しない。
     将来の `taskTemplates`(パターン)は同期対象にしない方針。
@@ -667,7 +670,7 @@ OneBoard-app-dev/
 `index.html` / `style.css` / `crypto.js` / `events.js` / `app.js` / `tasks.js` / アイコン / `holidays.json`
 を変更したら:
 
-1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v26`)
+1. `sw.js` の `const CACHE = 'oneboard-vN'` の番号を +1 する(現在 `oneboard-v27`)
    ※ `data/oneboard.enc.json` は precache せず network-first。データ更新でバージョンを上げる必要はない
    ※ `ASSETS` に precache するファイルを増やしたら忘れずに追記(現在 shell 一式 + `crypto.js` + `tasks.js` + `holidays.json`)
 2. コミット・push(GitHub Pages に反映)
